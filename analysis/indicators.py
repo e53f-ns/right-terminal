@@ -7,12 +7,19 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     low = df["low"]
     volume = df["volume"]
 
-    # RSI (14)
+    # RSI (14) — Wilder's EMA smoothing (com=13 ≡ alpha=1/14)
     delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    rsi = float((100 - 100 / (1 + rs)).iloc[-1])
+    gain = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
+    last_gain = float(gain.iloc[-1])
+    last_loss = float(loss.iloc[-1])
+    if last_loss == 0:
+        rsi = 100.0
+    elif last_gain == 0:
+        rsi = 0.0
+    else:
+        rs = last_gain / last_loss
+        rsi = 100 - (100 / (1 + rs))
 
     # MACD (12, 26, 9)
     ema12 = close.ewm(span=12, adjust=False).mean()
