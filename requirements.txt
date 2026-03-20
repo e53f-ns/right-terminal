@@ -1,0 +1,9 @@
+ccxt==4.3.89
+anthropic==0.40.0
+pandas==2.2.3
+numpy==1.26.4
+requests==2.32.3
+python-dotenv==1.0.1
+schedule==1.2.2
+pytest==8.3.4
+pytest-mock==3.14.0
