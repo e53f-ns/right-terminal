@@ -5,14 +5,13 @@ from typing import Optional
 
 class BybitClient:
     def __init__(self, api_key: str, secret: str, testnet: bool = False):
-        params = {
+        self._exchange = ccxt.bybit({
             "apiKey": api_key,
             "secret": secret,
             "enableRateLimit": True,
-        }
+        })
         if testnet:
-            params["urls"] = {"api": {"public": "https://api-testnet.bybit.com", "private": "https://api-testnet.bybit.com"}}
-        self._exchange = ccxt.bybit(params)
+            self._exchange.set_sandbox_mode(True)
 
     def get_candles(self, pair: str, timeframe: str = "15m", limit: int = 200) -> pd.DataFrame:
         raw = self._exchange.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
