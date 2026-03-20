@@ -1,6 +1,6 @@
 import requests
 
-FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=7"
+FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=7"  # alternative.me, no CoinGecko equivalent
 GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
 
 class CoinGeckoClient:
@@ -10,7 +10,10 @@ class CoinGeckoClient:
         data = resp.json()["data"]
         latest = data[0]
         history = [int(d["value"]) for d in data]
-        trend = "rising" if history[0] > history[-1] else "falling"
+        if len(history) < 2 or history[0] == history[-1]:
+            trend = "flat"
+        else:
+            trend = "rising" if history[0] > history[-1] else "falling"
         return {
             "value": int(latest["value"]),
             "label": latest["value_classification"],

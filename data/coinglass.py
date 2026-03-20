@@ -18,6 +18,6 @@ class CoinglassClient:
             )
             resp.raise_for_status()
             levels = resp.json().get("data", {}).get("liqLevels", [])
-            return [{"price": l["price"], "liq_usdt": l["liqUsdt"]} for l in levels]
+            return [{"price": level["price"], "liq_usdt": level["liqUsdt"]} for level in levels]
         except Exception:
             return []
