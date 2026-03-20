@@ -5,23 +5,18 @@ load_dotenv()
 
 class Config:
     def __init__(self):
-        self._require("ANTHROPIC_API_KEY")
-        self._require("BYBIT_API_KEY")
-        self._require("BYBIT_SECRET")
-        self._require("CRYPTOPANIC_API_KEY")
-        self._require("COINGLASS_API_KEY")
+        self.anthropic_api_key = self._get("ANTHROPIC_API_KEY")
+        self.bybit_api_key = self._get("BYBIT_API_KEY")
+        self.bybit_secret = self._get("BYBIT_SECRET")
+        self.cryptopanic_api_key = self._get("CRYPTOPANIC_API_KEY")
+        self.coinglass_api_key = self._get("COINGLASS_API_KEY")
 
         self.paper_trading = os.getenv("PAPER_TRADING", "true").lower() == "true"
-        self.bybit_api_key = os.environ["BYBIT_API_KEY"]
-        self.bybit_secret = os.environ["BYBIT_SECRET"]
         self.bybit_testnet = os.getenv("BYBIT_TESTNET", "false").lower() == "true"
-        self.anthropic_api_key = os.environ["ANTHROPIC_API_KEY"]
         self.claude_model = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
-        self.cryptopanic_api_key = os.environ["CRYPTOPANIC_API_KEY"]
-        self.coinglass_api_key = os.environ["COINGLASS_API_KEY"]
-        self.trading_pairs = os.getenv(
+        self.trading_pairs = [p.strip() for p in os.getenv(
             "TRADING_PAIRS", "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT"
-        ).split(",")
+        ).split(",")]
         self.scan_interval_minutes = int(os.getenv("SCAN_INTERVAL_MINUTES", "15"))
         self.min_confidence = int(os.getenv("MIN_CONFIDENCE", "75"))
         self.max_total_exposure_pct = float(os.getenv("MAX_TOTAL_EXPOSURE_PCT", "15"))
@@ -36,6 +31,14 @@ class Config:
         self.log_to_file = os.getenv("LOG_TO_FILE", "true").lower() == "true"
         self.log_dir = os.getenv("LOG_DIR", "logs")
 
-    def _require(self, key: str):
-        if not os.getenv(key):
+    def _get(self, key: str, default=None):
+        value = os.getenv(key, default)
+        if value is None:
             raise EnvironmentError(f"Required environment variable '{key}' is not set.")
+        return value
+
+    def __repr__(self):
+        return (f"Config(paper_trading={self.paper_trading}, "
+                f"pairs={self.trading_pairs}, "
+                f"model={self.claude_model}, "
+                f"min_confidence={self.min_confidence})")
