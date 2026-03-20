@@ -6,6 +6,9 @@ def get_logger(name: str, log_dir: str = "logs", log_to_file: bool = True, level
     logger = logging.getLogger(name)
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 
+    if logger.handlers:
+        return logger  # already configured, avoid duplicate handlers
+
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     ch = logging.StreamHandler()
     ch.setFormatter(fmt)
