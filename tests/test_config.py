@@ -7,7 +7,6 @@ def test_config_loads_required_vars(monkeypatch):
     monkeypatch.setenv("BYBIT_API_KEY", "bk")
     monkeypatch.setenv("BYBIT_SECRET", "bs")
     monkeypatch.setenv("CRYPTOPANIC_API_KEY", "cp")
-    monkeypatch.setenv("COINGLASS_API_KEY", "cg")
 
     from config import Config
     cfg = Config()
@@ -18,13 +17,13 @@ def test_config_loads_required_vars(monkeypatch):
     assert cfg.size_tier_low_pct == 3
 
 def test_config_raises_on_missing_api_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("BYBIT_API_KEY", "bk")
     monkeypatch.setenv("BYBIT_SECRET", "bs")
     monkeypatch.setenv("CRYPTOPANIC_API_KEY", "cp")
-    monkeypatch.setenv("COINGLASS_API_KEY", "cg")
     import importlib
     import config
+    # Reload first so load_dotenv() runs, then delete — Config.__init__ doesn't call load_dotenv again
     importlib.reload(config)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(EnvironmentError, match="ANTHROPIC_API_KEY"):
         config.Config()

@@ -9,7 +9,6 @@ class Config:
         self.bybit_api_key = self._get("BYBIT_API_KEY")
         self.bybit_secret = self._get("BYBIT_SECRET")
         self.cryptopanic_api_key = self._get("CRYPTOPANIC_API_KEY")
-        self.coinglass_api_key = self._get("COINGLASS_API_KEY")
 
         self.paper_trading = os.getenv("PAPER_TRADING", "true").lower() == "true"
         self.bybit_testnet = os.getenv("BYBIT_TESTNET", "false").lower() == "true"

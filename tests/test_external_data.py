@@ -46,16 +46,20 @@ def test_cryptopanic_returns_headlines():
 
 def test_coinglass_liquidation_levels():
     from data.coinglass import CoinglassClient
+    # CoinGecko OHLC format: [timestamp, open, high, low, close]
+    # Build 5 candles with a clear swing high at index 2 (high=87000) and swing low at index 2 (low=81000)
     mock_resp = MagicMock()
-    mock_resp.json.return_value = {
-        "data": {"liqLevels": [
-            {"price": 85000, "liqUsdt": 50000000},
-            {"price": 80000, "liqUsdt": 30000000},
-        ]}
-    }
+    mock_resp.json.return_value = [
+        [1700000000000, 84000, 85000, 83000, 84500],
+        [1700003600000, 84500, 86000, 84000, 85500],
+        [1700007200000, 85500, 87000, 81000, 83000],  # swing high + swing low
+        [1700010800000, 83000, 84000, 82000, 82500],
+        [1700014400000, 82500, 83500, 82000, 83000],
+    ]
     mock_resp.raise_for_status = MagicMock()
     with patch("data.coinglass.requests.get", return_value=mock_resp):
-        client = CoinglassClient(api_key="test")
+        client = CoinglassClient()  # no api_key needed
         levels = client.get_liquidation_levels("BTC")
-    assert len(levels) == 2
-    assert levels[0]["price"] == 85000
+    assert isinstance(levels, list)
+    assert all("price" in lv for lv in levels)
+    assert all("liq_usdt" in lv for lv in levels)

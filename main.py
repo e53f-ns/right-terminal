@@ -224,7 +224,7 @@ def main():
                         testnet=cfg.bybit_testnet)
     coingecko = CoinGeckoClient()
     cryptopanic = CryptoPanicClient(api_key=cfg.cryptopanic_api_key)
-    coinglass = CoinglassClient(api_key=cfg.coinglass_api_key)
+    coinglass = CoinglassClient()  # uses CoinGecko public API, no key needed
     brain = ClaudeBrain(api_key=cfg.anthropic_api_key, model=cfg.claude_model)
     risk_mgr = RiskManager(cfg)
     state = State(path="state.json", initial_balance=cfg.paper_initial_balance)
