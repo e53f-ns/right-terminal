@@ -1,0 +1,1495 @@
+#!/usr/bin/env python3
+"""
+RIGHT TRADE Terminal v3.5 — Web Dashboard
+Run:  python3 web_dashboard.py
+Open: http://localhost:8080
+"""
+
+import asyncio
+import glob
+import json
+import logging
+import math
+import os
+import re
+import time
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional, Set
+
+import requests
+import uvicorn
+import yfinance as yf
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+
+load_dotenv()
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("rightrade")
+
+# ── Anthropic (optional) ──────────────────────────────────────────────────────
+try:
+    import anthropic as _anthropic_lib
+    _ANT_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+    _claude  = _anthropic_lib.Anthropic(api_key=_ANT_KEY) if _ANT_KEY else None
+    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+    if _claude:
+        logger.info("Anthropic client ready (%s)", CLAUDE_MODEL)
+    else:
+        logger.warning("ANTHROPIC_API_KEY not set — AI analysis disabled")
+except ImportError:
+    _claude = None
+    CLAUDE_MODEL = None
+    logger.warning("anthropic package not installed — AI analysis disabled")
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+VERSION      = "3.5"
+REFRESH_SEC  = 30
+STATE_FILE   = "state.json"
+TRADE_GLOB   = "logs/trades*.jsonl"
+
+# BTC Halving
+HALVING_TARGET = datetime(2028, 4, 15, tzinfo=timezone.utc)
+
+FX_PAIRS = {
+    # Majors
+    "EURUSD=X": "EUR/USD", "GBPUSD=X": "GBP/USD", "USDJPY=X": "USD/JPY",
+    "AUDUSD=X": "AUD/USD", "USDCHF=X": "USD/CHF", "USDCAD=X": "USD/CAD",
+    "NZDUSD=X": "NZD/USD",
+    # Minors
+    "EURGBP=X": "EUR/GBP", "EURJPY=X": "EUR/JPY", "GBPJPY=X": "GBP/JPY",
+    "AUDJPY=X": "AUD/JPY", "EURAUD=X": "EUR/AUD",
+    # Emerging
+    "USDTRY=X": "USD/TRY", "USDMXN=X": "USD/MXN", "USDZAR=X": "USD/ZAR",
+    "USDBRL=X": "USD/BRL", "USDINR=X": "USD/INR", "USDRUB=X": "USD/RUB",
+    "USDCNY=X": "USD/CNY",
+}
+CB_RATES = [
+    ("Federal Reserve", "Fed", 5.50, "HOLD"),
+    ("European CB",     "ECB", 4.50, "HOLD"),
+    ("Bank of Japan",   "BOJ", 0.10, "HAWKISH"),
+    ("Bank of England", "BOE", 5.25, "HOLD"),
+    ("Swiss Natl Bank", "SNB", 1.75, "DOVISH"),
+    ("Bank of Canada",  "BOC", 5.00, "DOVISH"),
+]
+FRED_SERIES = {
+    "fed_funds":    "FEDFUNDS",
+    "cpi":          "CPIAUCSL",
+    "ppi":          "PPIACO",
+    "pce":          "PCEPI",
+    "unemployment": "UNRATE",
+    "gdp_growth":   "A191RL1Q225SBEA",
+    "m2":           "M2SL",
+    "fed_balance":  "WALCL",
+    "us1m":         "DGS1MO",
+    "us3m":         "DGS3MO",
+    "us6m":         "DGS6MO",
+    "us1y":         "DGS1",
+    "us2y":         "DGS2",
+    "us5y":         "DGS5",
+    "us10y":        "DGS10",
+    "us30y":        "DGS30",
+    "tip5y":        "DFII5",
+    "tip10y":       "DFII10",
+    "baa_spread":   "BAAFFM",
+    "ice_hy":       "BAMLH0A0HYM2",
+}
+CORR_MATRIX = {
+    "assets": ["BTC", "ETH", "SPX", "NDX", "DXY", "Gold", "Oil"],
+    "data": [
+        [ 1.00,  0.92,  0.65,  0.68, -0.42,  0.31,  0.18],
+        [ 0.92,  1.00,  0.63,  0.66, -0.38,  0.28,  0.16],
+        [ 0.65,  0.63,  1.00,  0.96, -0.51,  0.12,  0.34],
+        [ 0.68,  0.66,  0.96,  1.00, -0.49,  0.10,  0.31],
+        [-0.42, -0.38, -0.51, -0.49,  1.00, -0.68, -0.22],
+        [ 0.31,  0.28,  0.12,  0.10, -0.68,  1.00,  0.28],
+        [ 0.18,  0.16,  0.34,  0.31, -0.22,  0.28,  1.00],
+    ],
+}
+
+# ── Company data (F3 Stocks) ─────────────────────────────────────────────────
+COMPANY_DATA = {
+    "AAPL": {"name": "Apple", "sector": "Technology"},
+    "MSFT": {"name": "Microsoft", "sector": "Technology"},
+    "NVDA": {"name": "NVIDIA", "sector": "Semiconductors"},
+    "GOOGL": {"name": "Alphabet", "sector": "Technology"},
+    "AMZN": {"name": "Amazon", "sector": "E-Commerce/Cloud"},
+    "META": {"name": "Meta", "sector": "Social/AI"},
+    "TSLA": {"name": "Tesla", "sector": "Auto/Energy"},
+    "BRK-B": {"name": "Berkshire Hathaway", "sector": "Conglomerate"},
+    "JPM": {"name": "JPMorgan Chase", "sector": "Banking"},
+    "BAC": {"name": "Bank of America", "sector": "Banking"},
+    "GS": {"name": "Goldman Sachs", "sector": "Banking"},
+    "V": {"name": "Visa", "sector": "Payments"},
+    "MA": {"name": "Mastercard", "sector": "Payments"},
+    "WMT": {"name": "Walmart", "sector": "Retail"},
+    "XOM": {"name": "Exxon Mobil", "sector": "Energy"},
+    "CVX": {"name": "Chevron", "sector": "Energy"},
+    "COP": {"name": "ConocoPhillips", "sector": "Energy"},
+    "JNJ": {"name": "Johnson & Johnson", "sector": "Healthcare"},
+    "PFE": {"name": "Pfizer", "sector": "Healthcare"},
+    "UNH": {"name": "UnitedHealth", "sector": "Healthcare"},
+}
+COMPANY_CONNECTIONS = {
+    "NVDA": {"impact_if_drops": ["AMD goes up (competitor)", "MSFT/GOOGL/META down (AI customers)", "TSM down (supplier/customer)"]},
+    "AAPL": {"impact_if_drops": ["TSM down (supplier)", "QCOM affected", "SPX weight impact ~7%"]},
+    "TSLA": {"impact_if_drops": ["RIVN, LCID may follow", "Battery suppliers affected", "Limited SPX contagion"]},
+    "MSFT": {"impact_if_drops": ["Cloud peers AMZN/GOOGL pressured", "AI sentiment hit", "SPX weight impact ~7%"]},
+    "GOOGL": {"impact_if_drops": ["META pressured (ad revenue)", "Cloud peers affected", "Search monopoly concerns"]},
+    "AMZN": {"impact_if_drops": ["E-commerce peers down", "Cloud peers MSFT/GOOGL pressured", "Retail sentiment hit"]},
+    "META": {"impact_if_drops": ["SNAP, PINS follow", "Ad market concerns", "AI sentiment affected"]},
+}
+
+MOEX_STOCKS = {
+    "SBER.ME": "Sberbank", "GAZP.ME": "Gazprom", "LKOH.ME": "Lukoil",
+    "NVTK.ME": "Novatek", "ROSN.ME": "Rosneft", "MGNT.ME": "Magnit",
+    "YNDX.ME": "Yandex", "POLY.ME": "Polymetal", "NLMK.ME": "NLMK",
+    "GMKN.ME": "Nornickel",
+}
+
+INTL_INDICES = {
+    "^N225": "Nikkei 225", "^GDAXI": "DAX", "^FTSE": "FTSE 100",
+    "^HSI": "Hang Seng", "000001.SS": "SSE Composite",
+    "IMOEX.ME": "MOEX Index",
+}
+
+COMMODITIES = {
+    "GC=F": "Gold", "CL=F": "WTI Crude", "SI=F": "Silver",
+    "BZ=F": "Brent Crude", "NG=F": "Natural Gas", "HG=F": "Copper",
+    "ZW=F": "Wheat", "ZC=F": "Corn",
+}
+
+# ── Carry trades (F4 Forex) ──────────────────────────────────────────────────
+CARRY_TRADES = [
+    {"pair": "AUD/JPY", "long_rate": 4.35, "short_rate": 0.10, "carry": 4.25, "risk": "MODERATE"},
+    {"pair": "NZD/JPY", "long_rate": 5.50, "short_rate": 0.10, "carry": 5.40, "risk": "MODERATE"},
+    {"pair": "USD/JPY", "long_rate": 5.50, "short_rate": 0.10, "carry": 5.40, "risk": "LOW"},
+    {"pair": "GBP/JPY", "long_rate": 5.25, "short_rate": 0.10, "carry": 5.15, "risk": "HIGH"},
+    {"pair": "USD/TRY", "long_rate": 5.50, "short_rate": 50.0, "carry": -44.5, "risk": "EXTREME"},
+]
+
+# ── Central bank meetings (F4 Forex) ─────────────────────────────────────────
+CB_MEETINGS = [
+    {"bank": "Fed", "currency": "USD", "next_meeting": "2026-05-06", "type": "FOMC"},
+    {"bank": "ECB", "currency": "EUR", "next_meeting": "2026-04-17", "type": "Rate Decision"},
+    {"bank": "BOJ", "currency": "JPY", "next_meeting": "2026-04-25", "type": "MPM"},
+    {"bank": "BOE", "currency": "GBP", "next_meeting": "2026-05-08", "type": "MPC"},
+    {"bank": "RBA", "currency": "AUD", "next_meeting": "2026-04-08", "type": "Rate Decision"},
+    {"bank": "BOC", "currency": "CAD", "next_meeting": "2026-04-16", "type": "Rate Decision"},
+    {"bank": "SNB", "currency": "CHF", "next_meeting": "2026-06-19", "type": "Assessment"},
+    {"bank": "RBNZ", "currency": "NZD", "next_meeting": "2026-05-28", "type": "OCR Review"},
+]
+
+# ── Fed funds futures (F5 Bonds & Rates) ─────────────────────────────────────
+FED_FUTURES = [
+    {"meeting": "May 2026", "prob_hold": 65, "prob_cut": 30, "prob_hike": 5},
+    {"meeting": "Jun 2026", "prob_hold": 45, "prob_cut": 50, "prob_hike": 5},
+    {"meeting": "Jul 2026", "prob_hold": 35, "prob_cut": 60, "prob_hike": 5},
+    {"meeting": "Sep 2026", "prob_hold": 25, "prob_cut": 70, "prob_hike": 5},
+    {"meeting": "Nov 2026", "prob_hold": 20, "prob_cut": 75, "prob_hike": 5},
+    {"meeting": "Dec 2026", "prob_hold": 15, "prob_cut": 80, "prob_hike": 5},
+]
+
+# ── Global yields (F5 Bonds & Rates) ─────────────────────────────────────────
+GLOBAL_YIELDS = [
+    {"country": "United States", "code": "US", "yield_10y": None, "fred_key": "us10y"},
+    {"country": "Germany", "code": "DE", "yield_10y": 2.35},
+    {"country": "Japan", "code": "JP", "yield_10y": 0.92},
+    {"country": "United Kingdom", "code": "GB", "yield_10y": 4.15},
+    {"country": "Italy", "code": "IT", "yield_10y": 3.85},
+    {"country": "France", "code": "FR", "yield_10y": 3.05},
+    {"country": "Australia", "code": "AU", "yield_10y": 4.20},
+    {"country": "China", "code": "CN", "yield_10y": 2.30},
+    {"country": "Brazil", "code": "BR", "yield_10y": 12.50},
+    {"country": "Russia", "code": "RU", "yield_10y": 15.80},
+]
+
+# ── Bond ETFs (F5) ──────────────────────────────────────────────────────────
+BOND_ETFS = ["LQD", "TLT", "SHY", "IEF", "HYG", "AGG"]
+
+# ── JSON helpers ──────────────────────────────────────────────────────────────
+def clean(d: Any) -> Any:
+    if isinstance(d, dict):  return {k: clean(v) for k, v in d.items()}
+    if isinstance(d, list):  return [clean(v) for v in d]
+    if isinstance(d, float): return None if (math.isnan(d) or math.isinf(d)) else d
+    if hasattr(d, "item"):   return clean(d.item())
+    return d
+
+# ── HTTP ──────────────────────────────────────────────────────────────────────
+_sess = requests.Session()
+_sess.headers.update({
+    "User-Agent": "Mozilla/5.0 (compatible; RightTrade/3.5; +https://github.com)",
+    "Accept":     "application/json, text/plain, */*",
+})
+
+def _get(url: str, params=None, timeout: int = 12) -> requests.Response:
+    r = _sess.get(url, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r
+
+# ── Request cache (5-minute TTL) ─────────────────────────────────────────────
+_cache_store: dict = {}
+_cache_lock = threading.Lock()
+
+def cached_get(url: str, params=None, timeout: int = 12, ttl: int = 300) -> requests.Response:
+    key = url + str(sorted((params or {}).items()))
+    with _cache_lock:
+        if key in _cache_store:
+            resp, ts = _cache_store[key]
+            if time.time() - ts < ttl:
+                return resp
+    resp = _get(url, params=params, timeout=timeout)
+    with _cache_lock:
+        _cache_store[key] = (resp, time.time())
+    return resp
+
+# ── Data fetchers ─────────────────────────────────────────────────────────────
+
+def fetch_crypto() -> dict:
+    data = cached_get("https://api.coingecko.com/api/v3/coins/markets", params={
+        "vs_currency": "usd", "order": "market_cap_desc",
+        "per_page": 20, "page": 1,
+        "sparkline": "true", "price_change_percentage": "24h,7d",
+    }).json()
+    result = {}
+    total_mcap = sum(c.get("market_cap") or 0 for c in data)
+    for c in data:
+        sym = c.get("symbol", "").upper()
+        ath = c.get("ath")
+        price = c.get("current_price")
+        ath_dist = round((price - ath) / ath * 100, 1) if ath and price else None
+        mcap = c.get("market_cap") or 0
+        dom = round(mcap / total_mcap * 100, 2) if total_mcap else 0
+        # Extract 7d sparkline prices (last 42 data points = ~7 days of 4h data)
+        spark_raw = c.get("sparkline_in_7d", {}).get("price", [])
+        # Downsample to 14 points for compact display
+        spark = []
+        if spark_raw:
+            step = max(1, len(spark_raw) // 14)
+            spark = [spark_raw[i] for i in range(0, len(spark_raw), step)][:14]
+        result[sym] = {
+            "price": clean(price),
+            "change_24h": clean(c.get("price_change_percentage_24h")),
+            "change_7d": clean(c.get("price_change_percentage_7d_in_currency")),
+            "volume": clean(c.get("total_volume")),
+            "market_cap": clean(mcap),
+            "name": c.get("name", sym),
+            "rank": c.get("market_cap_rank"),
+            "ath": clean(ath),
+            "ath_distance_pct": ath_dist,
+            "dominance_pct": dom,
+            "sparkline_7d": [clean(p) for p in spark],
+        }
+    return result
+
+
+def fetch_global() -> dict:
+    d       = cached_get("https://api.coingecko.com/api/v3/global").json().get("data", {})
+    btc_dom = clean(d.get("market_cap_percentage", {}).get("btc"))
+    total   = clean(d.get("total_market_cap", {}).get("usd"))
+    usdt_dom = clean(d.get("market_cap_percentage", {}).get("usdt")) or 0
+    usdc_dom = clean(d.get("market_cap_percentage", {}).get("usdc")) or 0
+    stablecoin_dom = usdt_dom + usdc_dom
+    return {
+        "btc_dominance":      btc_dom,
+        "total_market_cap":   total,
+        "alt_season_index":   max(0, min(100, int((55 - (btc_dom or 50)) * 2 + 50))),
+        "stablecoin_dom":     stablecoin_dom,
+        "btc_halving_days":   max(0, (HALVING_TARGET - datetime.now(timezone.utc)).days),
+    }
+
+
+def fetch_fear_greed() -> list:
+    data = cached_get("https://api.alternative.me/fng/?limit=7").json().get("data", [])
+    return [{"value": int(d["value"]), "label": d["value_classification"]} for d in data]
+
+
+def fetch_funding() -> dict:
+    sym_map = {"BTCUSDT":"BTC","ETHUSDT":"ETH","SOLUSDT":"SOL","BNBUSDT":"BNB","XRPUSDT":"XRP"}
+    data    = cached_get("https://fapi.binance.com/fapi/v1/premiumIndex").json()
+    return {sym_map[d["symbol"]]: clean(float(d.get("lastFundingRate", 0)))
+            for d in data if d.get("symbol") in sym_map}
+
+
+def _calc_rsi(prices: list, period: int = 14) -> Optional[float]:
+    if len(prices) < period + 1:
+        return None
+    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+    gains  = [max(x, 0) for x in deltas]
+    losses = [abs(min(x, 0)) for x in deltas]
+    ag = sum(gains[-period:]) / period
+    al = sum(losses[-period:]) / period
+    return round(100 - 100 / (1 + ag / al), 1) if al != 0 else 100.0
+
+
+def fetch_rsi() -> dict:
+    result = {}
+    # RSI for top coins by symbol — use CoinGecko IDs for BTC/ETH/SOL/BNB/XRP
+    rsi_coins = {
+        "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana",
+        "BNB": "binancecoin", "XRP": "ripple",
+    }
+    for sym, cid in rsi_coins.items():
+        try:
+            r      = cached_get(f"https://api.coingecko.com/api/v3/coins/{cid}/market_chart",
+                          params={"vs_currency": "usd", "days": 16, "interval": "daily"})
+            prices = [p[1] for p in r.json().get("prices", [])]
+            result[sym] = _calc_rsi(prices)
+        except Exception:
+            result[sym] = None
+    return result
+
+
+def fetch_yf(symbols: list, fundamentals_for: list = None) -> dict:
+    """Fetch price data for all symbols. For symbols in fundamentals_for, also get P/E, 52w, etc."""
+    fundamentals_for = set(fundamentals_for or [])
+    result = {}
+    for sym in symbols:
+        try:
+            t     = yf.Ticker(sym)
+            fi    = t.fast_info
+            price = clean(getattr(fi, "last_price", None))
+            prev  = clean(getattr(fi, "previous_close", None))
+            chg   = clean(((price - prev) / prev * 100) if price and prev and prev != 0 else 0)
+            entry = {
+                "price":      price,
+                "prev_close": prev,
+                "day_high":   clean(getattr(fi, "day_high", None)),
+                "day_low":    clean(getattr(fi, "day_low", None)),
+                "change_pct": chg,
+                "market_cap": clean(getattr(fi, "market_cap", None)),
+                "fifty_two_week_high": clean(getattr(fi, "year_high", None)),
+                "fifty_two_week_low":  clean(getattr(fi, "year_low", None)),
+            }
+            # Distance from 52w high
+            w52h = entry["fifty_two_week_high"]
+            if price and w52h and w52h != 0:
+                entry["dist_52w_high_pct"] = clean(round((price - w52h) / w52h * 100, 1))
+            # Fundamentals for selected stocks (slower — uses .info)
+            if sym in fundamentals_for:
+                try:
+                    info = t.info
+                    entry["pe_ratio"]       = clean(info.get("trailingPE"))
+                    entry["forward_pe"]     = clean(info.get("forwardPE"))
+                    entry["eps"]            = clean(info.get("trailingEps"))
+                    entry["ps_ratio"]       = clean(info.get("priceToSalesTrailing12Months"))
+                    entry["revenue_growth"] = clean(info.get("revenueGrowth"))
+                    entry["recommendation"] = info.get("recommendationKey", "").upper() or None
+                    entry["short_pct"]      = clean(info.get("shortPercentOfFloat"))
+                    entry["inst_own_pct"]   = clean(info.get("heldPercentInstitutions"))
+                except Exception:
+                    pass
+            result[sym] = entry
+        except Exception:
+            result[sym] = {"price": None, "change_pct": 0}
+    return result
+
+
+def _fred_csv(sid: str) -> tuple:
+    """Fetch a single FRED series via CSV. Returns (value, date) or (None, 'N/A')."""
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
+    r   = requests.get(url, timeout=18, headers={
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        "Accept":     "text/csv,text/plain,*/*",
+        "Referer":    "https://fred.stlouisfed.org/",
+    })
+    r.raise_for_status()
+    for line in reversed(r.text.strip().split("\n")[1:]):
+        parts = line.split(",")
+        if len(parts) == 2 and parts[1].strip() not in (".", ""):
+            try:
+                return float(parts[1].strip()), parts[0].strip()
+            except ValueError:
+                continue
+    return None, "N/A"
+
+
+def fetch_macro() -> dict:
+    result = {}
+    for key, sid in FRED_SERIES.items():
+        try:
+            val, date = _fred_csv(sid)
+            result[key] = {"value": clean(val), "date": date}
+            logger.info("FRED %-14s OK  val=%-8s  date=%s", sid, val, date)
+        except Exception as e:
+            result[key] = {"value": None, "date": "N/A"}
+            logger.warning("FRED %-14s ERR %s", sid, e)
+
+    # Yield curve inversion detection
+    us2y_val = (result.get("us2y") or {}).get("value")
+    us10y_val = (result.get("us10y") or {}).get("value")
+    if us2y_val is not None and us10y_val is not None:
+        result["yield_curve_inverted"] = us2y_val > us10y_val
+    else:
+        result["yield_curve_inverted"] = False
+
+    return result
+
+
+# ── DeFi TVL (F2 Crypto) ─────────────────────────────────────────────────────
+
+def fetch_defi_tvl() -> dict:
+    """Fetch total DeFi TVL from DeFiLlama."""
+    try:
+        r = cached_get("https://api.llama.fi/v2/historicalChainTvl", timeout=10)
+        data = r.json()
+        if data and isinstance(data, list):
+            latest = data[-1]
+            prev = data[-2] if len(data) > 1 else latest
+            tvl = latest.get("tvl", 0)
+            prev_tvl = prev.get("tvl", 0)
+            chg = round((tvl - prev_tvl) / prev_tvl * 100, 2) if prev_tvl else 0
+            return {"tvl": tvl, "change_24h_pct": chg}
+    except Exception as e:
+        logger.warning("DeFiLlama fetch failed: %s", e)
+    return {"tvl": None, "change_24h_pct": None}
+
+
+# ── Recession probability (F1 Macro) ────────────────────────────────────────
+
+def calc_recession_prob(macro: dict) -> dict:
+    """Compute recession probability from yield curve + unemployment + PMI."""
+    score = 0
+    reasons = []
+
+    us2y = (macro.get("us2y") or {}).get("value")
+    us10y = (macro.get("us10y") or {}).get("value")
+    if us2y is not None and us10y is not None:
+        spread = us10y - us2y
+        if spread < 0:
+            score += 35
+            reasons.append(f"Yield curve inverted ({spread:+.2f}%)")
+        elif spread < 0.3:
+            score += 15
+            reasons.append(f"Yield curve nearly flat ({spread:+.2f}%)")
+
+    unemp = (macro.get("unemployment") or {}).get("value")
+    if unemp is not None:
+        if unemp > 5.0:
+            score += 25
+            reasons.append(f"Unemployment elevated ({unemp}%)")
+        elif unemp > 4.0:
+            score += 10
+            reasons.append(f"Unemployment rising ({unemp}%)")
+
+    fed = (macro.get("fed_funds") or {}).get("value")
+    if fed is not None and fed > 4.5:
+        score += 15
+        reasons.append(f"Restrictive policy (Fed Funds {fed}%)")
+
+    gdp = (macro.get("gdp_growth") or {}).get("value")
+    if gdp is not None:
+        if gdp < 0:
+            score += 25
+            reasons.append(f"GDP contracting ({gdp}%)")
+        elif gdp < 1.0:
+            score += 10
+            reasons.append(f"GDP growth weak ({gdp}%)")
+
+    return {
+        "probability": min(score, 100),
+        "level": "HIGH" if score >= 60 else "MODERATE" if score >= 35 else "LOW",
+        "reasons": reasons,
+    }
+
+
+# ── Earnings calendar (F3 Stocks) ───────────────────────────────────────────
+
+def fetch_earnings_calendar() -> list:
+    """Fetch upcoming earnings from yfinance for tracked stocks."""
+    result = []
+    tickers = list(COMPANY_DATA.keys())[:10]  # Top 10 only for speed
+    for sym in tickers:
+        try:
+            t = yf.Ticker(sym)
+            cal = t.calendar
+            if cal is not None and isinstance(cal, dict):
+                ed = cal.get("Earnings Date")
+                if ed and isinstance(ed, list) and len(ed) > 0:
+                    d = ed[0]
+                    date_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
+                    result.append({
+                        "symbol": sym,
+                        "name": COMPANY_DATA.get(sym, {}).get("name", sym),
+                        "date": date_str,
+                        "eps_est": clean(cal.get("Earnings Average")),
+                        "rev_est": clean(cal.get("Revenue Average")),
+                    })
+        except Exception:
+            pass
+    result.sort(key=lambda x: x.get("date", "9999"))
+    return result[:15]
+
+
+# ── Currency strength meter (F4 Forex) ───────────────────────────────────────
+
+def calc_currency_strength(forex_data: dict) -> list:
+    """Rank 8 major currencies by aggregate pair movement."""
+    scores = {"USD": 0, "EUR": 0, "GBP": 0, "JPY": 0, "AUD": 0, "CHF": 0, "CAD": 0, "NZD": 0}
+    pair_map = {
+        "EURUSD=X": ("EUR", "USD"), "GBPUSD=X": ("GBP", "USD"), "USDJPY=X": ("USD", "JPY"),
+        "AUDUSD=X": ("AUD", "USD"), "USDCHF=X": ("USD", "CHF"), "USDCAD=X": ("USD", "CAD"),
+        "NZDUSD=X": ("NZD", "USD"),
+    }
+    for sym, (base, quote) in pair_map.items():
+        chg = (forex_data.get(sym) or {}).get("change_pct") or 0
+        scores[base] += chg
+        scores[quote] -= chg
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return [{"currency": c, "score": round(s, 3)} for c, s in ranked]
+
+
+# ── Geopolitical fetcher ───────────────────────────────────────────────────────
+
+def fetch_geo() -> dict:
+    result: dict = {
+        "risk_score":    50,
+        "earthquakes":   [],
+        "gdelt_tone":    None,
+        "gdelt_events":  [],
+        "cyber_alerts":  [],
+        "nuclear_index": 35,   # static estimate, public sources
+        "market_impact": {},
+        "statuses":      {},
+    }
+
+    # USGS significant earthquakes — last 24h
+    try:
+        r = cached_get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.geojson", timeout=15)
+        features = r.json().get("features", [])
+        result["earthquakes"] = [
+            {
+                "mag":    f["properties"].get("mag"),
+                "place":  f["properties"].get("place", "Unknown"),
+                "time":   datetime.fromtimestamp(
+                    f["properties"]["time"] / 1000, timezone.utc
+                ).strftime("%H:%M UTC"),
+                "alert":  f["properties"].get("alert", "").upper() or "NONE",
+                "impact": "HIGH" if (f["properties"].get("mag") or 0) >= 6.5 else "MOD",
+            }
+            for f in features[:6]
+        ]
+        result["statuses"]["usgs"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["usgs"] = "ERR"
+        logger.warning("USGS fetch failed: %s", e)
+
+    # GDELT — global event tone last 24h
+    try:
+        r     = cached_get(
+            "https://api.gdeltproject.org/api/v2/summary/summary",
+            params={"d": "last24", "t": "summary", "output": "json"},
+            timeout=8,
+        )
+        gdata = r.json()
+        # GDELT returns a complex structure; extract what we can
+        tone  = None
+        events_raw = []
+        if isinstance(gdata, dict):
+            # Try to find tone value
+            for k in ("toneavg", "tone_avg", "avgtone"):
+                if k in gdata:
+                    tone = gdata[k]; break
+            # Country summaries
+            countries = gdata.get("countries", gdata.get("country", []))
+            if isinstance(countries, list):
+                for c in countries[:5]:
+                    if isinstance(c, dict):
+                        events_raw.append({
+                            "region": c.get("country", c.get("name", "Unknown")),
+                            "tone":   c.get("tone", c.get("avgtone", 0)),
+                            "count":  c.get("articlecount", c.get("count", 0)),
+                        })
+        result["gdelt_tone"]   = clean(tone)
+        result["gdelt_events"] = events_raw[:5]
+        result["statuses"]["gdelt"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["gdelt"] = "ERR"
+        logger.warning("GDELT fetch failed: %s", e)
+
+    # Cyber alerts — CISA RSS feed (simplified)
+    try:
+        r    = cached_get("https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json", timeout=15)
+        data = r.json()
+        vulns = data.get("vulnerabilities", [])
+        # Get the most recent
+        recent = sorted(vulns, key=lambda x: x.get("dateAdded", ""), reverse=True)[:3]
+        result["cyber_alerts"] = [
+            {
+                "id":       v.get("cveID", "N/A"),
+                "name":     v.get("vulnerabilityName", "Unknown")[:60],
+                "vendor":   v.get("vendorProject", ""),
+                "added":    v.get("dateAdded", ""),
+                "severity": "HIGH",
+            }
+            for v in recent
+        ]
+        result["statuses"]["cyber"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["cyber"] = "ERR"
+        logger.warning("CISA fetch failed: %s", e)
+
+    # Compute composite risk score
+    score = 30  # baseline
+    if result["earthquakes"]:
+        score += min(len(result["earthquakes"]) * 8, 25)
+    if result["gdelt_tone"] is not None:
+        tone = result["gdelt_tone"]
+        if tone < -3:   score += 25
+        elif tone < -1: score += 12
+        elif tone < 0:  score += 6
+    if result["cyber_alerts"]:
+        score += min(len(result["cyber_alerts"]) * 5, 15)
+    result["risk_score"] = min(int(score), 100)
+
+    # Market impact logic
+    risk = result["risk_score"]
+    result["market_impact"] = {
+        "crypto":      "RISK-OFF" if risk > 65 else "RISK-ON" if risk < 35 else "NEUTRAL",
+        "stocks":      "BEARISH"  if risk > 60 else "BULLISH" if risk < 35 else "NEUTRAL",
+        "forex":       "USD DEMAND ↑" if risk > 55 else "NEUTRAL",
+        "commodities": "GOLD ↑ OIL ↑" if risk > 55 else "NEUTRAL",
+    }
+
+    # Political stability data (static)
+    result["political_stability"] = [
+        {"country": "United States", "code": "US", "index": 62, "trend": "DECLINING", "risk": "MODERATE"},
+        {"country": "European Union", "code": "EU", "index": 58, "trend": "STABLE", "risk": "MODERATE"},
+        {"country": "China", "code": "CN", "index": 45, "trend": "STABLE", "risk": "ELEVATED"},
+        {"country": "Russia", "code": "RU", "index": 25, "trend": "DECLINING", "risk": "HIGH"},
+    ]
+
+    # Election calendar 2026
+    result["elections_2026"] = [
+        {"country": "United States", "date": "2026-11-03", "type": "Midterm Elections", "impact": "HIGH"},
+        {"country": "Brazil", "date": "2026-10-04", "type": "General Election", "impact": "MODERATE"},
+        {"country": "Australia", "date": "2026-05-30", "type": "Federal Election", "impact": "MODERATE"},
+        {"country": "Philippines", "date": "2026-05-11", "type": "Midterm Elections", "impact": "LOW"},
+        {"country": "Mexico", "date": "2026-06-07", "type": "State Elections", "impact": "MODERATE"},
+    ]
+    # Add days_until to each
+    now = datetime.now(timezone.utc)
+    for e in result["elections_2026"]:
+        try:
+            ed = datetime.strptime(e["date"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            e["days_until"] = max(0, (ed - now).days)
+        except Exception:
+            e["days_until"] = None
+
+    # Sanctions tracker
+    result["sanctions"] = [
+        {"target": "Russia", "imposed_by": "US/EU/UK", "type": "Financial, Energy, Technology", "severity": "MAXIMUM", "since": "2022"},
+        {"target": "Iran", "imposed_by": "US/EU", "type": "Oil, Banking, Nuclear", "severity": "HIGH", "since": "2018"},
+        {"target": "China", "imposed_by": "US", "type": "Technology (chips, AI)", "severity": "TARGETED", "since": "2022"},
+        {"target": "North Korea", "imposed_by": "UN", "type": "Comprehensive", "severity": "MAXIMUM", "since": "2006"},
+        {"target": "Myanmar", "imposed_by": "US/EU", "type": "Military, Financial", "severity": "HIGH", "since": "2021"},
+    ]
+
+    # Commodity geopolitical risk
+    result["commodity_geo"] = [
+        {"commodity": "Oil", "risk_factor": "Strait of Hormuz tensions", "impact": "HIGH", "affected": ["CL=F"]},
+        {"commodity": "Natural Gas", "risk_factor": "Russia-Europe pipeline cuts", "impact": "CRITICAL", "affected": ["NG=F"]},
+        {"commodity": "Semiconductors", "risk_factor": "Taiwan strait tensions", "impact": "CRITICAL", "affected": ["NVDA", "AMD", "TSM"]},
+        {"commodity": "Wheat/Grain", "risk_factor": "Black Sea corridor", "impact": "HIGH", "affected": ["ZW=F"]},
+        {"commodity": "Lithium", "risk_factor": "China processing dominance", "impact": "MODERATE", "affected": ["TSLA", "ALB"]},
+    ]
+
+    # Economic calendar — Forex Factory free feed
+    try:
+        r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+                         timeout=10, headers={"User-Agent": "RightTrade/3.5"})
+        events = r.json()
+        # Filter high-impact events in next 7 days
+        result["economic_calendar"] = [
+            {
+                "title": ev.get("title", ""),
+                "country": ev.get("country", ""),
+                "date": ev.get("date", ""),
+                "time": ev.get("time", ""),
+                "impact": ev.get("impact", ""),
+                "forecast": ev.get("forecast", ""),
+                "previous": ev.get("previous", ""),
+            }
+            for ev in (events if isinstance(events, list) else [])
+            if ev.get("impact") in ("High", "Medium")
+        ][:20]
+        result["statuses"]["econ_cal"] = "LIVE"
+    except Exception as e:
+        result["economic_calendar"] = []
+        result["statuses"]["econ_cal"] = "ERR"
+        logger.warning("Economic calendar fetch failed: %s", e)
+
+    return result
+
+
+# ── News & Sentiment (F6) ────────────────────────────────────────────────────
+
+def fetch_news() -> dict:
+    result = {
+        "crypto_news": [],
+        "macro_news": [],
+        "reddit_wsb": [],
+        "reddit_bitcoin": [],
+        "telegram": [],
+        "sentiment": {},
+        "statuses": {},
+    }
+
+    # CryptoPanic (free, no key needed for public feed)
+    try:
+        r = cached_get("https://cryptopanic.com/api/free/v1/posts/?auth_token=&public=true&kind=news", timeout=10)
+        posts = r.json().get("results", [])[:15]
+        result["crypto_news"] = [{
+            "title": p.get("title", ""),
+            "source": p.get("source", {}).get("title", ""),
+            "url": p.get("url", ""),
+            "published": p.get("published_at", ""),
+            "currencies": [c.get("code", "") for c in (p.get("currencies") or [])],
+            "kind": p.get("kind", "news"),
+            "votes": p.get("votes", {}),
+        } for p in posts]
+        result["statuses"]["crypto_news"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["crypto_news"] = "ERR"
+        logger.warning("CryptoPanic fetch failed: %s", e)
+
+    # Yahoo Finance RSS
+    try:
+        r = requests.get("https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,AAPL,TSLA,NVDA&region=US&lang=en-US",
+                         timeout=10, headers={"User-Agent": "RightTrade/3.5"})
+        # Simple XML parse for RSS
+        items = []
+        for match in re.finditer(r'<item>(.*?)</item>', r.text, re.DOTALL):
+            item_xml = match.group(1)
+            title = re.search(r'<title>(.*?)</title>', item_xml)
+            link = re.search(r'<link>(.*?)</link>', item_xml)
+            pubdate = re.search(r'<pubDate>(.*?)</pubDate>', item_xml)
+            if title:
+                items.append({
+                    "title": title.group(1).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">"),
+                    "source": "Yahoo Finance",
+                    "url": link.group(1) if link else "",
+                    "published": pubdate.group(1) if pubdate else "",
+                })
+        result["macro_news"] = items[:10]
+        result["statuses"]["macro_news"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["macro_news"] = "ERR"
+        logger.warning("Yahoo Finance RSS failed: %s", e)
+
+    # Reddit r/wallstreetbets
+    try:
+        r = requests.get("https://www.reddit.com/r/wallstreetbets/hot.json?limit=10",
+                         timeout=10, headers={"User-Agent": "RightTrade/3.5 (by /u/trading-bot)"})
+        posts = r.json().get("data", {}).get("children", [])
+        result["reddit_wsb"] = [{
+            "title": p["data"].get("title", ""),
+            "score": p["data"].get("score", 0),
+            "comments": p["data"].get("num_comments", 0),
+            "url": "https://reddit.com" + p["data"].get("permalink", ""),
+            "created": datetime.fromtimestamp(p["data"].get("created_utc", 0), timezone.utc).isoformat(),
+            "flair": p["data"].get("link_flair_text", ""),
+        } for p in posts if p.get("data")]
+        result["statuses"]["reddit_wsb"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["reddit_wsb"] = "ERR"
+        logger.warning("Reddit WSB failed: %s", e)
+
+    # Reddit r/Bitcoin
+    try:
+        r = requests.get("https://www.reddit.com/r/Bitcoin/hot.json?limit=10",
+                         timeout=10, headers={"User-Agent": "RightTrade/3.5 (by /u/trading-bot)"})
+        posts = r.json().get("data", {}).get("children", [])
+        result["reddit_bitcoin"] = [{
+            "title": p["data"].get("title", ""),
+            "score": p["data"].get("score", 0),
+            "comments": p["data"].get("num_comments", 0),
+            "url": "https://reddit.com" + p["data"].get("permalink", ""),
+            "created": datetime.fromtimestamp(p["data"].get("created_utc", 0), timezone.utc).isoformat(),
+        } for p in posts if p.get("data")]
+        result["statuses"]["reddit_bitcoin"] = "LIVE"
+    except Exception as e:
+        result["statuses"]["reddit_bitcoin"] = "ERR"
+        logger.warning("Reddit Bitcoin failed: %s", e)
+
+    # Google News (business/markets)
+    try:
+        r = requests.get("https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB",
+                         timeout=10, headers={"User-Agent": "RightTrade/3.5"})
+        items = []
+        for match in re.finditer(r'<item>(.*?)</item>', r.text, re.DOTALL):
+            item_xml = match.group(1)
+            title = re.search(r'<title>(.*?)</title>', item_xml)
+            pubdate = re.search(r'<pubDate>(.*?)</pubDate>', item_xml)
+            source = re.search(r'<source[^>]*>(.*?)</source>', item_xml)
+            if title:
+                items.append({
+                    "title": title.group(1).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">"),
+                    "source": source.group(1) if source else "Google News",
+                    "published": pubdate.group(1) if pubdate else "",
+                })
+        result["google_news"] = items[:8]
+        result["statuses"]["google_news"] = "LIVE"
+    except Exception as e:
+        result["google_news"] = []
+        result["statuses"]["google_news"] = "ERR"
+        logger.warning("Google News RSS failed: %s", e)
+
+    # Telegram public channels
+    try:
+        tg_channels = ["durov", "coindesk"]
+        tg_posts = []
+        for ch in tg_channels:
+            try:
+                r = requests.get(f"https://t.me/s/{ch}", timeout=8,
+                                headers={"User-Agent": "Mozilla/5.0"})
+                # Extract recent messages from HTML
+                msgs = re.findall(r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', r.text, re.DOTALL)
+                for msg in msgs[-3:]:
+                    text = re.sub(r'<[^>]+>', '', msg).strip()[:200]
+                    if text:
+                        tg_posts.append({"channel": ch, "text": text})
+            except Exception:
+                pass
+        result["telegram"] = tg_posts[-6:]
+        result["statuses"]["telegram"] = "LIVE" if tg_posts else "ERR"
+    except Exception:
+        result["statuses"]["telegram"] = "ERR"
+
+    # Compute sentiment scores
+    def simple_sentiment(items, title_key="title"):
+        if not items: return "NEUTRAL"
+        bull_words = {"surge", "soar", "rally", "bull", "gain", "up", "high", "record", "boom", "buy", "growth", "profit"}
+        bear_words = {"crash", "drop", "fall", "bear", "loss", "down", "low", "sell", "fear", "panic", "recession", "dump"}
+        bull, bear = 0, 0
+        for item in items:
+            text = (item.get(title_key, "") or "").lower()
+            bull += sum(1 for w in bull_words if w in text)
+            bear += sum(1 for w in bear_words if w in text)
+        if bull > bear * 1.5: return "BULLISH"
+        if bear > bull * 1.5: return "BEARISH"
+        return "NEUTRAL"
+
+    result["sentiment"] = {
+        "crypto": simple_sentiment(result["crypto_news"]),
+        "stocks": simple_sentiment(result["macro_news"]),
+        "reddit": simple_sentiment(result["reddit_wsb"]),
+    }
+
+    return result
+
+
+# ── Claude AI analysis ────────────────────────────────────────────────────────
+
+def _claude_call(prompt: str, max_tokens: int = 300) -> Optional[str]:
+    if not _claude:
+        return None
+    try:
+        msg = _claude.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text if msg.content else None
+    except Exception as e:
+        logger.warning("Claude API call failed: %s", e)
+        return None
+
+
+def claude_macro_analysis(data: dict) -> Optional[str]:
+    m   = data.get("macro", {})
+    g   = data.get("global", {})
+    fg  = (data.get("fear_greed") or [{}])[0]
+    geo = data.get("geo", {})
+    prompt = (
+        "Analyze the current macro and geopolitical environment for a crypto/equity trader. "
+        "Be concise (3-4 sentences). No bullet points.\n\n"
+        f"Macro: Fed Funds={m.get('fed_funds',{}).get('value','N/A')}%  "
+        f"CPI={m.get('cpi',{}).get('value','N/A')}  "
+        f"Unemployment={m.get('unemployment',{}).get('value','N/A')}%  "
+        f"US10Y={m.get('us10y',{}).get('value','N/A')}%\n"
+        f"BTC Dominance={g.get('btc_dominance','N/A')}%  "
+        f"Fear&Greed={fg.get('value','N/A')} ({fg.get('label','N/A')})\n"
+        f"Geopolitical Risk Score={geo.get('risk_score','N/A')}/100\n\n"
+        "State: (1) current regime label, (2) biggest risk, (3) asset allocation implication."
+    )
+    return _claude_call(prompt, max_tokens=250)
+
+
+def claude_trade_analysis(agent: dict) -> Optional[str]:
+    trades  = agent.get("recent_trades", [])
+    balance = agent.get("balance", 0)
+    wr      = agent.get("win_rate", 0)
+    if not trades:
+        return "No trade history available."
+    summary = "\n".join(
+        f"  {t.get('pair','?')} {t.get('action',t.get('type','?'))} "
+        f"@ {t.get('price', t.get('entry', t.get('exit_price','?')))} "
+        f"PnL={t.get('pnl_usdt','N/A')} result={t.get('result','?')}"
+        for t in trades[:10]
+    )
+    prompt = (
+        f"Analyze this trading bot's recent performance. 4-5 sentences, direct, no preamble.\n\n"
+        f"Balance: ${balance:,.2f}  Win rate: {wr}%\nRecent trades:\n{summary}\n\n"
+        "Identify: (1) performance trend, (2) main weakness, (3) one concrete improvement."
+    )
+    return _claude_call(prompt, max_tokens=300)
+
+
+def claude_news_analysis(news: dict, data: dict = None) -> Optional[dict]:
+    """Comprehensive AI news analysis returning structured JSON."""
+    headlines = []
+    for item in (news.get("crypto_news") or [])[:5]:
+        headlines.append(f"[CRYPTO] {item.get('title', '')}")
+    for item in (news.get("macro_news") or [])[:5]:
+        headlines.append(f"[MACRO] {item.get('title', '')}")
+    for item in (news.get("reddit_wsb") or [])[:3]:
+        headlines.append(f"[WSB] {item.get('title', '')}")
+    if not headlines:
+        return None
+
+    # Add price context if available
+    price_context = ""
+    if data:
+        crypto = data.get("crypto") or {}
+        stocks = data.get("stocks") or {}
+        if crypto.get("BTC"):
+            price_context += f"BTC: ${crypto['BTC'].get('price', 'N/A')} ({crypto['BTC'].get('change_24h', 0):+.1f}% 24h)  "
+        if crypto.get("ETH"):
+            price_context += f"ETH: ${crypto['ETH'].get('price', 'N/A')} ({crypto['ETH'].get('change_24h', 0):+.1f}% 24h)  "
+        spx = stocks.get("^GSPC", {})
+        if spx.get("price"):
+            price_context += f"SPX: {spx['price']:.0f} ({spx.get('change_pct', 0):+.1f}%)  "
+        vix = stocks.get("^VIX", {})
+        if vix.get("price"):
+            price_context += f"VIX: {vix['price']:.1f}"
+
+    prompt = (
+        "You are a financial news analyst. Analyze these headlines and market data. "
+        "Return ONLY valid JSON (no markdown, no code blocks) with this structure:\n"
+        '{"market_moving": ["top event 1", "top event 2", "top event 3", "top event 4", "top event 5"],'
+        '"crypto_outlook": "1-2 sentence analysis",'
+        '"stocks_outlook": "1-2 sentence analysis",'
+        '"forex_outlook": "1-2 sentence analysis",'
+        '"commodities_outlook": "1-2 sentence analysis",'
+        '"bonds_outlook": "1-2 sentence analysis",'
+        '"opportunities": ["opportunity 1", "opportunity 2", "opportunity 3"],'
+        '"risks": ["risk 1", "risk 2", "risk 3"],'
+        '"sentiment": {"crypto": 0, "stocks": 0, "forex": 0, "commodities": 0, "bonds": 0}}\n\n'
+        "Sentiment scores from -100 (extreme bearish) to +100 (extreme bullish).\n\n"
+        f"PRICES: {price_context}\n\n"
+        "HEADLINES:\n" + "\n".join(headlines[:12])
+    )
+    raw = _claude_call(prompt, max_tokens=600)
+    if not raw:
+        return None
+    try:
+        # Strip any markdown code blocks
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning("Failed to parse AI news JSON: %s", e)
+        # Return as plain text fallback
+        return {"summary": raw}
+
+
+# ── Agent data ────────────────────────────────────────────────────────────────
+
+def _calc_perf_stats(closed: list) -> dict:
+    """Compute performance stats from a list of closed trades."""
+    if not closed:
+        return {"total": 0, "wins": 0, "losses": 0, "win_rate": 0,
+                "avg_win": 0, "avg_loss": 0, "profit_factor": 0,
+                "max_drawdown": 0, "best_trade": 0, "worst_trade": 0}
+    wins = [t for t in closed if t.get("result") == "WIN"]
+    losses = [t for t in closed if t.get("result") == "LOSS"]
+    win_pnls = [t.get("pnl_usdt", 0) for t in wins]
+    loss_pnls = [t.get("pnl_usdt", 0) for t in losses]
+    all_pnls = [t.get("pnl_usdt", 0) for t in closed]
+    gross_win = sum(win_pnls) if win_pnls else 0
+    gross_loss = abs(sum(loss_pnls)) if loss_pnls else 0
+    # Max drawdown from equity curve
+    peak, dd = 0, 0
+    running = 0
+    for p in all_pnls:
+        running += p
+        if running > peak:
+            peak = running
+        dd = min(dd, running - peak)
+    return {
+        "total": len(closed),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else 0,
+        "avg_win": round(sum(win_pnls) / len(win_pnls), 2) if win_pnls else 0,
+        "avg_loss": round(sum(loss_pnls) / len(loss_pnls), 2) if loss_pnls else 0,
+        "profit_factor": round(gross_win / gross_loss, 2) if gross_loss > 0 else 999,
+        "max_drawdown": round(dd, 2),
+        "best_trade": round(max(all_pnls), 2) if all_pnls else 0,
+        "worst_trade": round(min(all_pnls), 2) if all_pnls else 0,
+    }
+
+
+def read_agent_data() -> dict:
+    state = {}
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE) as f:
+                state = json.load(f)
+    except Exception:
+        pass
+
+    trades = []
+    try:
+        for lf in sorted(glob.glob(TRADE_GLOB), reverse=True):
+            with open(lf) as f:
+                for ln in f:
+                    try:
+                        trades.append(json.loads(ln.strip()))
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # Filter out HOLD/BLOCKED — only show actual trades
+    trades = [t for t in trades if t.get("action") in ("ENTRY", "CLOSE", "BUY", "SELL", "LONG", "SHORT")]
+    trades = sorted(trades, key=lambda x: x.get("ts", x.get("timestamp", "")), reverse=True)
+
+    balance = state.get("paper_balance", state.get("initial_balance", 10000))
+    initial = state.get("initial_balance", 10000)
+    total   = state.get("total_trades", 0)
+    wins    = state.get("winning_trades", 0)
+    losses  = state.get("consecutive_losses", 0)
+
+    # Equity = free balance + margin locked in open positions
+    all_positions = {**state.get("open_positions", {}),
+                     **state.get("stock_positions", {}),
+                     **state.get("forex_positions", {})}
+    locked_margin = sum(p.get("size_usdt", 0) for p in all_positions.values())
+    equity = balance + locked_margin
+
+    paused, pause_str = state.get("paused_until"), None
+    is_paused = False
+    if paused:
+        try:
+            pdt = datetime.fromisoformat(paused)
+            if pdt > datetime.now(timezone.utc):
+                is_paused = True
+                pause_str = pdt.strftime("%H:%M UTC")
+        except Exception:
+            pass
+
+    # Build simple P&L history from closed trades
+    closed_trades = [t for t in reversed(trades) if t.get("action") == "CLOSE"]
+    pnl_history: list = []
+    running = initial
+    for t in closed_trades:
+        if t.get("pnl_usdt") is not None:
+            running += t["pnl_usdt"]
+            pnl_history.append(round(running, 2))
+    pnl_history = pnl_history[-30:]
+
+    # Performance stats per asset class
+    crypto_closed = [t for t in closed_trades if t.get("asset_class", "crypto") == "crypto"]
+    stock_closed = [t for t in closed_trades if t.get("asset_class") == "stock"]
+    forex_closed = [t for t in closed_trades if t.get("asset_class") == "forex"]
+
+    # Multi-asset positions
+    crypto_positions = state.get("open_positions", {})
+    stock_positions = state.get("stock_positions", {})
+    forex_positions = state.get("forex_positions", {})
+
+    # Realized P&L = sum of all closed trade P&L
+    realized_pnl = sum(t.get("pnl_usdt", 0) for t in closed_trades)
+    # Unrealized = equity - initial - realized (i.e. margin currently at risk)
+    unrealized_pnl = round(equity - initial - realized_pnl, 2)
+
+    return {
+        "status":             "PAUSED" if is_paused else "RUNNING",
+        "pause_until":        pause_str,
+        "mode":               "LIVE" if not state.get("paper_trading", True) else "PAPER",
+        "balance":            balance,
+        "equity":             round(equity, 2),
+        "locked_margin":      round(locked_margin, 2),
+        "initial_balance":    initial,
+        "pnl_total_pct":      round((equity - initial) / initial * 100, 3) if initial else 0,
+        "realized_pnl":       round(realized_pnl, 2),
+        "unrealized_pnl":     unrealized_pnl,
+        "daily_pnl_pct":      state.get("daily_pnl_pct", 0),
+        "total_trades":       total,
+        "winning_trades":     wins,
+        "losing_trades":      total - wins,
+        "win_rate":           round(wins / total * 100, 1) if total else 0,
+        "consecutive_losses": losses,
+        "open_positions":     crypto_positions,
+        "stock_positions":    stock_positions,
+        "forex_positions":    forex_positions,
+        "recent_trades":      trades[:30],
+        "pnl_history":        pnl_history,
+        "perf_all":           _calc_perf_stats(closed_trades),
+        "perf_crypto":        _calc_perf_stats(crypto_closed),
+        "perf_stock":         _calc_perf_stats(stock_closed),
+        "perf_forex":         _calc_perf_stats(forex_closed),
+        "daily_trades_today": state.get("daily_trades_today", 0),
+        "confidence_adjustment": state.get("confidence_adjustment", 0),
+    }
+
+
+# ── Parallel fetch orchestrator ───────────────────────────────────────────────
+
+def _run(key: str, fn, results: dict, statuses: dict) -> None:
+    t0 = time.time()
+    try:
+        results[key]  = fn()
+        statuses[key] = "LIVE"
+        logger.info("fetch %-12s OK   %.1fs", key, time.time() - t0)
+    except Exception as e:
+        results[key]  = None
+        statuses[key] = "ERR"
+        logger.warning("fetch %-12s ERR  %.1fs  %s", key, time.time() - t0, e)
+
+
+def fetch_all() -> dict:
+    results: dict  = {}
+    statuses: dict = {}
+    fundamental_tickers = list(COMPANY_DATA.keys())
+    stock_syms = [
+        # US Indices
+        "^GSPC", "^NDX", "^DJI", "^VIX", "^RUT",
+        # International Indices
+        "^N225", "^GDAXI", "^FTSE", "^HSI", "000001.SS",
+        # Sector ETFs
+        "XLK","XLF","XLE","XLV","XLI","XLB","XLRE","XLC","XLY","XLP","XLU",
+        # Commodities
+        "GC=F","CL=F","SI=F","BZ=F","NG=F","HG=F","ZW=F","ZC=F",
+        # Top Stocks (all from COMPANY_DATA)
+        *fundamental_tickers,
+        # Bond ETFs
+        *BOND_ETFS,
+        # Russian MOEX
+        "SBER.ME","GAZP.ME","LKOH.ME","NVTK.ME","ROSN.ME",
+        "MGNT.ME","YNDX.ME","POLY.ME","NLMK.ME","GMKN.ME",
+        "IMOEX.ME",
+    ]
+    # Deduplicate while preserving order
+    stock_syms = list(dict.fromkeys(stock_syms))
+    forex_syms = list(FX_PAIRS) + ["DX-Y.NYB"]
+    tasks = [
+        ("crypto",     fetch_crypto),
+        ("global",     fetch_global),
+        ("fear_greed", fetch_fear_greed),
+        ("funding",    fetch_funding),
+        ("rsi",        fetch_rsi),
+        ("macro",      fetch_macro),
+        ("stocks",     lambda: fetch_yf(stock_syms, fundamentals_for=fundamental_tickers)),
+        ("forex",      lambda: fetch_yf(forex_syms)),
+        ("geo",        fetch_geo),
+        ("news",       fetch_news),
+        ("defi_tvl",   fetch_defi_tvl),
+    ]
+    threads = [
+        threading.Thread(target=_run, args=(k, fn, results, statuses), daemon=True)
+        for k, fn in tasks
+    ]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(timeout=28)
+
+    # Static data
+    results["api_status"] = statuses
+    results["agent"]      = read_agent_data()
+    results["cb_rates"]   = [{"name": n, "short": s, "rate": r, "stance": st}
+                              for n, s, r, st in CB_RATES]
+    results["corr"]       = CORR_MATRIX
+
+    # Company data & connections (F3 Stocks)
+    results["company_data"]        = COMPANY_DATA
+    results["company_connections"] = COMPANY_CONNECTIONS
+    results["moex_stocks"]         = MOEX_STOCKS
+    results["intl_indices"]        = INTL_INDICES
+    results["commodities_map"]     = COMMODITIES
+
+    # Currency strength (F4 Forex)
+    results["currency_strength"] = calc_currency_strength(results.get("forex") or {})
+    results["carry_trades"]      = CARRY_TRADES
+    results["cb_meetings"]       = CB_MEETINGS
+
+    # Bonds & Rates (F5)
+    results["fed_futures"] = FED_FUTURES
+
+    # Update US yield in global yields from FRED data
+    macro = results.get("macro") or {}
+    global_yields_copy = [dict(gy) for gy in GLOBAL_YIELDS]
+    global_yields_copy[0]["yield_10y"] = (macro.get("us10y") or {}).get("value")
+    results["global_yields"] = global_yields_copy
+
+    # Yield curve inversion (already set in fetch_macro, propagate to top level)
+    results["yield_curve_inverted"] = (macro.get("yield_curve_inverted", False)
+                                       if isinstance(macro, dict) else False)
+
+    # Recession probability (F1 Macro)
+    results["recession"] = calc_recession_prob(macro) if isinstance(macro, dict) else {"probability": 0, "level": "N/A", "reasons": []}
+
+    # Bond ETFs (F5)
+    results["bond_etfs"] = {sym: (results.get("stocks") or {}).get(sym, {}) for sym in BOND_ETFS}
+
+    # Earnings calendar (F3 — run inline, fast enough)
+    try:
+        results["earnings_calendar"] = fetch_earnings_calendar()
+    except Exception as e:
+        results["earnings_calendar"] = []
+        logger.warning("Earnings calendar failed: %s", e)
+
+    # Claude analysis (sequential, after all data ready)
+    try:
+        macro_text = claude_macro_analysis(results)
+        results["claude_macro"] = {"text": macro_text, "timestamp": int(time.time())} if macro_text else None
+        if macro_text:
+            logger.info("Claude macro analysis: OK")
+    except Exception as e:
+        results["claude_macro"] = None
+        logger.warning("Claude macro analysis failed: %s", e)
+
+    # Claude news analysis (structured)
+    try:
+        results["claude_news"] = claude_news_analysis(results.get("news") or {}, results)
+        if results["claude_news"]:
+            results["claude_news"]["timestamp"] = int(time.time())
+            logger.info("Claude news analysis: OK")
+    except Exception as e:
+        results["claude_news"] = None
+        logger.warning("Claude news analysis failed: %s", e)
+
+    return results
+
+
+# ── Startup source test ───────────────────────────────────────────────────────
+
+def test_sources() -> None:
+    logger.info("=" * 50)
+    logger.info("RIGHT TRADE Terminal v%s — source tests", VERSION)
+    logger.info("=" * 50)
+    tests = [
+        ("CoinGecko",      "https://api.coingecko.com/api/v3/ping"),
+        ("Alternative.me", "https://api.alternative.me/fng/?limit=1"),
+        ("Binance FAPI",   "https://fapi.binance.com/fapi/v1/ping"),
+        ("FRED",           "https://fred.stlouisfed.org/graph/fredgraph.csv?id=FEDFUNDS", 20),
+        ("USGS",           "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_day.geojson"),
+        ("GDELT",          "https://api.gdeltproject.org/api/v2/summary/summary?d=last24&t=summary&output=json"),
+        ("CISA KEV",       "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"),
+        ("Reddit",         "https://www.reddit.com/r/wallstreetbets/hot.json?limit=1"),
+        ("Yahoo RSS",      "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US"),
+        ("ForexFactory",   "https://nfs.faireconomy.media/ff_calendar_thisweek.json"),
+    ]
+    for entry in tests:
+        name, url = entry[0], entry[1]
+        tmo = entry[2] if len(entry) > 2 else 10
+        try:
+            r = requests.get(url, timeout=tmo, headers={"User-Agent": "RightTrade/3.5"})
+            r.raise_for_status()
+            logger.info("  %-20s OK  (HTTP %d)", name, r.status_code)
+        except Exception as e:
+            logger.warning("  %-20s ERR %s", name, str(e)[:80])
+    logger.info("Anthropic API: %s", "OK" if _claude else "DISABLED (no key)")
+    logger.info("=" * 50)
+
+
+# ── Cache & Connection manager ────────────────────────────────────────────────
+
+class DataCache:
+    def __init__(self) -> None:
+        self._data: dict         = {}
+        self._json: Optional[str] = None
+        self._lock               = threading.Lock()
+        self._version            = 0
+        self._broadcast_ver      = -1
+
+    def update(self, d: dict) -> None:
+        d["type"] = "data"
+        d["ts"]   = int(time.time())
+        s = json.dumps(clean(d))
+        with self._lock:
+            self._data = d
+            self._json = s
+            self._version += 1
+
+    def get_json(self) -> Optional[str]:
+        with self._lock:
+            return self._json
+
+    def get(self) -> dict:
+        with self._lock:
+            return dict(self._data)
+
+    def needs_broadcast(self) -> bool:
+        return self._version > self._broadcast_ver
+
+    def mark_broadcast(self) -> None:
+        self._broadcast_ver = self._version
+
+
+class Manager:
+    def __init__(self) -> None:
+        self._clients: Set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+
+    async def connect(self, ws: WebSocket) -> None:
+        await ws.accept()
+        async with self._lock:
+            self._clients.add(ws)
+
+    def disconnect(self, ws: WebSocket) -> None:
+        self._clients.discard(ws)
+
+    async def broadcast(self, text: str) -> None:
+        dead = set()
+        for ws in list(self._clients):
+            try:
+                await ws.send_text(text)
+            except Exception:
+                dead.add(ws)
+        for ws in dead:
+            self._clients.discard(ws)
+
+    @property
+    def count(self) -> int:
+        return len(self._clients)
+
+
+# ── FastAPI app ───────────────────────────────────────────────────────────────
+
+app     = FastAPI(title="RIGHT TRADE Terminal")
+cache   = DataCache()
+manager = Manager()
+
+
+@app.get("/")
+async def root():
+    p = Path("templates/index.html")
+    if p.exists():
+        return HTMLResponse(p.read_text())
+    return HTMLResponse("<h1>Missing templates/index.html</h1>", status_code=500)
+
+
+@app.get("/api/data")
+async def api_data():
+    return JSONResponse(cache.get())
+
+
+@app.get("/api/export/{panel}")
+async def export_csv(panel: str):
+    data = cache.get()
+    rows: list = []
+    if panel == "crypto":
+        rows = [["Symbol","Price","24H%","7D%","Volume","MarketCap","RSI"]]
+        for sym, c in (data.get("crypto") or {}).items():
+            rsi = (data.get("rsi") or {}).get(sym)
+            rows.append([sym, c.get("price"), c.get("change_24h"),
+                         c.get("change_7d"), c.get("volume"), c.get("market_cap"), rsi])
+    elif panel == "stocks":
+        rows = [["Symbol","Price","Change%","DayHigh","DayLow"]]
+        for sym, s in (data.get("stocks") or {}).items():
+            rows.append([sym, s.get("price"), s.get("change_pct"),
+                         s.get("day_high"), s.get("day_low")])
+    elif panel == "forex":
+        rows = [["Pair","Rate","Change%","DayHigh","DayLow"]]
+        for sym, lbl in FX_PAIRS.items():
+            f = (data.get("forex") or {}).get(sym, {})
+            rows.append([lbl, f.get("price"), f.get("change_pct"),
+                         f.get("day_high"), f.get("day_low")])
+    csv_text = "\n".join(",".join("" if v is None else str(v) for v in row) for row in rows)
+    return Response(
+        csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=righttrade_{panel}.csv"},
+    )
+
+
+@app.post("/api/claude/trades")
+async def claude_trades_endpoint():
+    """Call Claude to analyze current trade history."""
+    agent = cache.get().get("agent") or read_agent_data()
+    result = claude_trade_analysis(agent)
+    return JSONResponse({"analysis": result or "AI analysis unavailable."})
+
+
+@app.post("/api/claude/news")
+async def claude_news_endpoint():
+    data = cache.get()
+    news = data.get("news") or {}
+    result = claude_news_analysis(news, data)
+    return JSONResponse({"analysis": result or "AI analysis unavailable."})
+
+
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        data_json = cache.get_json()
+        if data_json:
+            await websocket.send_text(data_json)
+        else:
+            await websocket.send_text('{"type":"loading"}')
+        while True:
+            await asyncio.sleep(10)
+            await websocket.send_text(
+                '{"type":"ping","clients":' + str(manager.count) + '}'
+            )
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        manager.disconnect(websocket)
+
+
+@app.on_event("startup")
+async def on_startup():
+    threading.Thread(target=test_sources, daemon=True).start()
+    asyncio.create_task(_refresh_task())
+    asyncio.create_task(_broadcast_task())
+
+
+async def _refresh_task():
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            data = await loop.run_in_executor(None, fetch_all)
+            cache.update(data)
+            logger.info("Cache updated  ts=%d  clients=%d", int(time.time()), manager.count)
+        except Exception as e:
+            logger.error("Refresh task error: %s", e)
+        await asyncio.sleep(REFRESH_SEC)
+
+
+async def _broadcast_task():
+    while True:
+        await asyncio.sleep(1)
+        if cache.needs_broadcast():
+            j = cache.get_json()
+            if j:
+                await manager.broadcast(j)
+                cache.mark_broadcast()
+
+
+# ── Entry ─────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "web_dashboard:app",
+        host="0.0.0.0",
+        port=8080,
+        reload=False,
+        log_level="warning",
+    )

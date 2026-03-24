@@ -8,7 +8,8 @@ class Executor:
         self._paper_engine = paper_engine
         self._bybit = bybit_client
 
-    def execute(self, signal: TradeSignal, size_usdt: float) -> dict:
+    def execute(self, signal: TradeSignal, size_usdt: float,
+                leverage: int = 1, strategy: str = "SCALP") -> dict:
         if self._paper:
             return self._paper_engine.open_position(
                 pair=signal.pair,
@@ -18,6 +19,8 @@ class Executor:
                 stop_loss=signal.stop_loss,
                 take_profit=signal.take_profit,
                 confidence=signal.confidence,
+                leverage=leverage,
+                strategy=strategy,
             )
         else:
             amount = size_usdt / signal.entry
@@ -33,3 +36,9 @@ class Executor:
         if self._paper:
             return self._paper_engine.check_stop_take(pair, current_price) or {}
         return {}
+
+    def check_margin_health(self) -> str:
+        """Returns pair to close if margin health is bad, else None."""
+        if self._paper and self._paper_engine:
+            return self._paper_engine.check_margin_health()
+        return None

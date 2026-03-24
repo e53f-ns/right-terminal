@@ -40,6 +40,24 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     tp = (high + low + close) / 3
     vwap = float((tp * volume).cumsum().iloc[-1] / volume.cumsum().iloc[-1])
 
+    # Volume analysis
+    volume_current = float(volume.iloc[-1])
+    volume_avg_20 = float(volume.iloc[-20:].mean()) if len(volume) >= 20 else float(volume.mean())
+    volume_ratio = round(volume_current / volume_avg_20, 2) if volume_avg_20 > 0 else 1.0
+    volume_spike = volume_ratio > 2.0
+    last5 = volume.iloc[-5:].tolist()
+    if len(last5) >= 5:
+        first_half = sum(last5[:2]) / 2
+        second_half = sum(last5[3:]) / 2
+        if second_half > first_half * 1.1:
+            volume_trend = "increasing"
+        elif second_half < first_half * 0.9:
+            volume_trend = "decreasing"
+        else:
+            volume_trend = "flat"
+    else:
+        volume_trend = "flat"
+
     return {
         "rsi": round(rsi, 2),
         "macd": round(float(macd_line.iloc[-1]), 4),
@@ -53,4 +71,9 @@ def compute_indicators(df: pd.DataFrame) -> dict:
         "ema200": round(ema200, 2),
         "vwap": round(vwap, 2),
         "current_price": round(float(close.iloc[-1]), 2),
+        "volume_current": round(volume_current, 4),
+        "volume_avg_20": round(volume_avg_20, 4),
+        "volume_ratio": volume_ratio,
+        "volume_spike": volume_spike,
+        "volume_trend": volume_trend,
     }

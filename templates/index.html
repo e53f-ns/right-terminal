@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RIGHT TRADE Terminal v4.0</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:     #000;  --panel: #080808;  --border: #FF6600;
+  --orange: #FF6600; --green: #00FF00; --red: #FF0000;
+  --cyan:   #00CCFF; --yellow:#FFFF00; --white: #E0E0E0;
+  --dim:    #555;  --header:#140800;  --ai-bg: #0d1117;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Source Code Pro','Courier New',monospace;font-size:13px;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+#loading{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:18px}
+#loading pre{color:var(--orange);font-size:11px;line-height:1.3;text-align:center;font-family:'JetBrains Mono',monospace}
+#lb-wrap{width:300px;border:1px solid var(--orange);padding:3px}
+#lb{height:7px;background:var(--orange);width:0%;transition:width .18s}
+#lmsg{color:var(--cyan);font-size:11px;min-height:14px}
+
+#hdr{background:var(--header);border-bottom:2px solid var(--orange);padding:3px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0;height:40px}
+#hdr-logo{color:var(--orange);font-weight:700;font-size:22px;letter-spacing:4px}
+#hdr-time{color:var(--cyan);font-size:12px}
+.sbadge{font-size:9px;padding:1px 4px;border:1px solid}
+.sbadge.ny{color:var(--green);border-color:var(--green)}
+.sbadge.lon{color:var(--cyan);border-color:var(--cyan)}
+.sbadge.tok{color:var(--yellow);border-color:var(--yellow)}
+.sbadge.syd{color:#FF9900;border-color:#FF9900}
+.sbadge.fra{color:#4488FF;border-color:#4488FF}
+.sbadge.hk{color:#FF4488;border-color:#FF4488}
+.sbadge.sgp{color:#88FF44;border-color:#88FF44}
+.sbadge.msk{color:#FF6666;border-color:#FF6666}
+.sbadge.closed{color:var(--dim);border-color:var(--dim)}
+#conn{margin-left:auto;font-size:11px;padding:1px 7px;border:1px solid}
+.clive{color:var(--green);border-color:var(--green)}
+.coff{color:var(--red);border-color:var(--red)}
+.cload{color:var(--yellow);border-color:var(--yellow)}
+#lupd{color:var(--dim);font-size:10px}
+
+#tkr-wrap{background:#080800;border-bottom:1px solid #2a2a00;height:32px;overflow:hidden;flex-shrink:0;display:flex;align-items:center}
+#tkr{display:inline-block;white-space:nowrap;animation:scroll 70s linear infinite;padding-left:100%}
+@keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
+.ti{display:inline-block;padding:4px 14px;font-size:13px;border-right:1px solid #2a2a00}
+.ts{color:var(--cyan)} .tp{color:var(--green)} .tn{color:var(--red)} .tf{color:var(--white)}
+
+#tabs{background:#080808;border-bottom:1px solid #222;display:flex;flex-shrink:0;height:34px;overflow-x:auto}
+.tab{padding:6px 22px;color:var(--dim);border-right:1px solid #181818;cursor:pointer;font-size:12px;user-select:none;display:flex;align-items:center;gap:5px;white-space:nowrap;transition:background .12s;flex-shrink:0}
+.tab:hover{background:var(--header);color:var(--white)}
+.tab.active{background:var(--header);color:var(--orange);border-bottom:2px solid var(--orange)}
+.fk{color:var(--dim);font-size:9px}
+.tab.active .fk{color:var(--orange)}
+
+#content{flex:1;overflow:hidden;position:relative}
+.panel{display:none;height:100%;overflow-y:auto;padding:14px;gap:10px}
+.panel.active{display:flex;flex-direction:column}
+.panel::-webkit-scrollbar{width:5px}
+.panel::-webkit-scrollbar-thumb{background:#2a2a00;border-radius:3px}
+
+.row{display:flex;gap:10px} .col{display:flex;flex-direction:column;gap:10px}
+.c1{flex:1} .c2{flex:2} .c3{flex:3}
+
+.card{background:var(--panel);border:1px solid #181818;border-top:2px solid var(--orange);padding:14px;position:relative;overflow:hidden}
+.ctitle{color:var(--orange);font-size:13px;font-weight:700;letter-spacing:1px;margin-bottom:6px;border-bottom:1px solid #180800;padding-bottom:4px;display:flex;justify-content:space-between;align-items:center}
+.ctitle .upd{color:var(--dim);font-size:9px;font-weight:normal;letter-spacing:0}
+.err-badge{color:var(--red);font-size:10px;padding:1px 5px;border:1px solid var(--red)}
+
+.bt{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.bt th{color:var(--orange);font-size:10px;text-align:left;padding:3px 5px;border-bottom:1px solid #180800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt td{padding:3px 5px;border-bottom:1px solid #0d0d00;white-space:nowrap;font-size:13px;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.bt tr:hover td{background:#0a0500;border-radius:2px}
+.bt .sym{color:var(--cyan);font-weight:700}
+.bt .price{font-size:14px;font-weight:500}
+.pos{color:var(--green)} .neg{color:var(--red)} .neu{color:var(--white)} .dim{color:var(--dim)}
+.tr{text-align:right}
+
+.sr{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #0d0d00;font-size:13px}
+.sr:last-child{border-bottom:none}
+.sl{color:var(--dim)} .sv{color:var(--white)}
+
+.gbar{height:7px;background:#181800;border:1px solid #333;position:relative}
+.gfill{height:100%;transition:width .3s}
+.gf{background:var(--red)} .gg{background:var(--green)} .gn{background:var(--yellow)}
+
+.sbrow{display:flex;align-items:center;gap:5px;font-size:12px}
+.sbbar{flex:1;height:5px;background:#181818;border-radius:2px;overflow:hidden}
+.sbfill{height:100%;border-radius:2px}
+
+.b{display:inline-block;padding:1px 5px;font-size:9px;border:1px solid;border-radius:2px}
+.bg{color:var(--green);border-color:var(--green)} .br{color:var(--red);border-color:var(--red)}
+.by{color:var(--yellow);border-color:var(--yellow)} .bc{color:var(--cyan);border-color:var(--cyan)}
+.bo{color:var(--orange);border-color:var(--orange)} .bd{color:var(--dim);border-color:var(--dim)}
+
+.risk-big{font-size:36px;font-weight:bold;text-align:center;padding:8px 0}
+.risk-low{color:var(--green)} .risk-med{color:var(--yellow)} .risk-high{color:var(--red)}
+
+.sparkline{font-size:10px;letter-spacing:1px;font-family:'JetBrains Mono',monospace}
+.spark-up{color:var(--green)} .spark-down{color:var(--red)} .spark-flat{color:var(--cyan)}
+
+.ai-box{background:var(--ai-bg);border:1px solid #1a2332;border-left:3px solid var(--cyan);padding:12px 14px;font-size:13px;color:var(--white);line-height:1.6;min-height:40px;position:relative}
+.ai-box .ai-badge{position:absolute;top:4px;right:6px;color:var(--cyan);font-size:9px;border:1px solid var(--cyan);padding:0 4px;border-radius:2px}
+.ai-box .ai-ts{color:var(--dim);font-size:10px;margin-top:6px}
+.ai-box.loading{color:var(--dim);font-style:italic}
+
+.geo-row{padding:4px 0;border-bottom:1px solid #0d0d00;font-size:12px}
+.geo-row:last-child{border-bottom:none}
+
+.news-item{padding:5px 0;border-bottom:1px solid #0d0d00;font-size:12px}
+.news-item:last-child{border-bottom:none}
+.news-title{color:var(--white);line-height:1.4}
+.news-meta{color:var(--dim);font-size:10px;margin-top:2px}
+.breaking{border-left:3px solid var(--red);padding-left:5px;background:#0a0000}
+.breaking .news-title{color:var(--red)}
+
+.inp{background:#111;border:1px solid #333;color:var(--white);padding:4px 8px;font-family:inherit;font-size:12px;outline:none;flex:1}
+.inp:focus{border-color:var(--orange)}
+.btn{background:transparent;border:1px solid var(--orange);color:var(--orange);padding:4px 12px;cursor:pointer;font-family:inherit;font-size:12px;transition:background .12s}
+.btn:hover{background:var(--header)}
+.btnr{border-color:var(--red);color:var(--red)}
+.btng{border-color:var(--green);color:var(--green)}
+.btng:hover{background:#001800}
+.btn-sm{padding:2px 6px;font-size:10px}
+
+.ct{border-collapse:collapse;font-size:10px;table-layout:fixed;width:100%}
+.ct th{color:var(--orange);padding:2px 3px;text-align:center;overflow:hidden;text-overflow:ellipsis}
+.ct td{padding:2px 3px;text-align:center;border:1px solid #0d0d0d;min-width:36px;overflow:hidden;text-overflow:ellipsis;max-width:80px}
+
+.recess-gauge{text-align:center;padding:6px 0}
+.recess-gauge .pct{font-size:28px;font-weight:700}
+
+#sbar{background:#060600;border-top:1px solid #1a1a00;padding:1px 10px;display:flex;gap:10px;align-items:center;flex-shrink:0;height:18px;font-size:10px;color:var(--dim);overflow:hidden}
+.dot{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:2px;vertical-align:middle}
+.dl{background:var(--green)} .de{background:var(--red)}
+
+@media(max-width:900px){.row{flex-direction:column}body{font-size:12px}}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading">
+  <pre>
+ ██████╗ ██╗ ██████╗ ██╗  ██╗████████╗    ████████╗██████╗  █████╗ ██████╗ ███████╗
+ ██╔══██╗██║██╔════╝ ██║  ██║╚══██╔══╝    ╚══██╔══╝██╔══██╗██╔══██╗██╔══██╗██╔════╝
+ ██████╔╝██║██║  ███╗███████║   ██║          ██║   ██████╔╝███████║██║  ██║█████╗
+ ██╔══██╗██║██║   ██║██╔══██║   ██║          ██║   ██╔══██╗██╔══██║██║  ██║██╔══╝
+ ██║  ██║██║╚██████╔╝██║  ██║   ██║          ██║   ██║  ██║██║  ██║██████╔╝███████╗
+ ╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝          ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝
+              T E R M I N A L   v 4 . 0   —   M A R K E T   I N T E L L I G E N C E</pre>
+  <div id="lb-wrap"><div id="lb"></div></div>
+  <div id="lmsg">Connecting to data feeds...</div>
+</div>
+
+<!-- Header -->
+<div id="hdr">
+  <span id="hdr-logo">RIGHT TRADE</span>
+  <span id="hdr-time">--:--:-- UTC</span>
+  <span class="sbadge closed" id="bny">NY</span>
+  <span class="sbadge closed" id="blon">LON</span>
+  <span class="sbadge closed" id="btok">TOK</span>
+  <span class="sbadge closed" id="bsyd">SYD</span>
+  <span class="sbadge closed" id="bfra">FRA</span>
+  <span class="sbadge closed" id="bhk">HK</span>
+  <span class="sbadge closed" id="bsgp">SGP</span>
+  <span class="sbadge closed" id="bmsk">MSK</span>
+  <span id="lupd">&mdash;</span>
+  <span id="conn" class="cload">&#9679; CONNECTING</span>
+</div>
+
+<!-- Ticker -->
+<div id="tkr-wrap"><div id="tkr">
+  <span class="ti"><span class="ts">BTC</span> <span id="tk-btc">&mdash;</span></span>
+  <span class="ti"><span class="ts">ETH</span> <span id="tk-eth">&mdash;</span></span>
+  <span class="ti"><span class="ts">SOL</span> <span id="tk-sol">&mdash;</span></span>
+  <span class="ti"><span class="ts">SPX</span> <span id="tk-spx">&mdash;</span></span>
+  <span class="ti"><span class="ts">NDX</span> <span id="tk-ndx">&mdash;</span></span>
+  <span class="ti"><span class="ts">VIX</span> <span id="tk-vix">&mdash;</span></span>
+  <span class="ti"><span class="ts">EUR/USD</span> <span id="tk-eur">&mdash;</span></span>
+  <span class="ti"><span class="ts">GBP/USD</span> <span id="tk-gbp">&mdash;</span></span>
+  <span class="ti"><span class="ts">USD/JPY</span> <span id="tk-jpy">&mdash;</span></span>
+  <span class="ti"><span class="ts">GOLD</span> <span id="tk-gold">&mdash;</span></span>
+  <span class="ti"><span class="ts">OIL</span> <span id="tk-oil">&mdash;</span></span>
+  <span class="ti"><span class="ts">DXY</span> <span id="tk-dxy">&mdash;</span></span>
+  <span class="ti"><span class="ts">GEO RISK</span> <span id="tk-geo">&mdash;</span></span>
+</div></div>
+
+<!-- Tabs -->
+<div id="tabs">
+  <div class="tab active" data-p="macro"><span class="fk">F1</span> MACRO</div>
+  <div class="tab" data-p="crypto"><span class="fk">F2</span> CRYPTO</div>
+  <div class="tab" data-p="stocks"><span class="fk">F3</span> STOCKS</div>
+  <div class="tab" data-p="forex"><span class="fk">F4</span> FOREX</div>
+  <div class="tab" data-p="bonds"><span class="fk">F5</span> BONDS &amp; RATES</div>
+  <div class="tab" data-p="news"><span class="fk">F6</span> NEWS &amp; AI</div>
+  <div class="tab" data-p="geo"><span class="fk">F7</span> GEOPOLITICAL</div>
+  <div class="tab" data-p="signals"><span class="fk">F8</span> SIGNALS</div>
+  <div class="tab" data-p="agent"><span class="fk">F9</span> AGENT</div>
+</div>
+
+<!-- Content -->
+<div id="content">
+
+<!-- F1 MACRO -->
+<div class="panel active" id="panel-macro">
+  <div class="row">
+    <div class="col c2">
+      <div class="card">
+        <div class="ctitle">ECONOMIC INDICATORS (FRED) <span class="upd" id="upd-macro">&mdash;</span></div>
+        <table class="bt"><thead><tr><th>INDICATOR</th><th class="tr">VALUE</th><th class="tr">AS OF</th></tr></thead><tbody id="tb-macro"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">YIELD CURVE (US TREASURIES)</div>
+        <div id="yc" style="display:flex;flex-direction:column;gap:5px;padding:3px 0"></div>
+        <div id="yc-alert" style="display:none;margin-top:5px;padding:4px 8px;background:#180000;border:1px solid var(--red);font-size:11px;color:var(--red)"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">MACRO + GEOPOLITICAL REGIME <span class="b bc">AI</span></div>
+        <div class="ai-box loading" id="ai-macro">Waiting for data...</div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">RECESSION PROBABILITY</div>
+        <div class="recess-gauge"><div class="pct" id="recess-pct">&mdash;</div><div class="dim" style="font-size:10px" id="recess-level">&mdash;</div></div>
+        <div class="gbar" style="height:8px"><div class="gfill" id="recess-bar" style="width:0%"></div></div>
+        <div id="recess-reasons" style="margin-top:6px;font-size:11px"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">CENTRAL BANK RATES</div>
+        <table class="bt"><thead><tr><th>BANK</th><th class="tr">RATE</th><th>STANCE</th></tr></thead><tbody id="tb-cb"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">FEAR &amp; GREED</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span id="fg-lbl" style="color:var(--orange)">&mdash;</span>
+          <span id="fg-val" style="font-size:22px;font-weight:bold">&mdash;</span>
+        </div>
+        <div class="gbar"><div class="gfill" id="fg-bar" style="width:0%"></div></div>
+        <div style="margin-top:7px;font-size:9px;color:var(--dim)">7-DAY HISTORY</div>
+        <div id="fg-hist" style="display:flex;gap:3px;margin-top:3px;align-items:flex-end;height:36px"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">GEOPOLITICAL RISK OVERLAY</div>
+        <div class="sr"><span class="sl">Risk Score</span><span class="sv" id="geo-score-macro">&mdash;</span></div>
+        <div class="sr"><span class="sl">Regime</span><span class="sv" id="geo-regime-macro">&mdash;</span></div>
+        <div class="sr"><span class="sl">Crypto Impact</span><span class="sv" id="geo-crypto-macro">&mdash;</span></div>
+        <div class="sr"><span class="sl">Equity Impact</span><span class="sv" id="geo-equity-macro">&mdash;</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F2 CRYPTO -->
+<div class="panel" id="panel-crypto">
+  <div class="row">
+    <div class="col c3">
+      <div class="card">
+        <div class="ctitle">TOP 20 CRYPTO BY MARKET CAP <span class="upd" id="upd-crypto">&mdash;</span></div>
+        <table class="bt"><thead><tr><th>#</th><th>COIN</th><th class="tr">PRICE</th><th class="tr">24H%</th><th class="tr">7D%</th><th>7D CHART</th><th class="tr">RSI</th><th class="tr">FUND</th><th class="tr">VOLUME</th><th class="tr">MCAP</th><th class="tr">DOM%</th><th class="tr">ATH%</th></tr></thead><tbody id="tb-crypto"></tbody></table>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">MARKET OVERVIEW</div>
+        <div class="sr"><span class="sl">BTC Dominance</span><span class="sv" id="dom-btc">&mdash;</span></div>
+        <div class="sr"><span class="sl">Total Market Cap</span><span class="sv" id="dom-cap">&mdash;</span></div>
+        <div class="sr"><span class="sl">Alt Season Index</span><span class="sv" id="dom-alt">&mdash;</span></div>
+        <div class="sr"><span class="sl">Stablecoin Dom.</span><span class="sv" id="dom-stable">&mdash;</span></div>
+        <div class="sr"><span class="sl">BTC Halving</span><span class="sv" id="dom-halving">&mdash;</span></div>
+        <div class="sr"><span class="sl">DeFi TVL</span><span class="sv" id="dom-defi">&mdash;</span></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">FUNDING RATES (8H)</div>
+        <table class="bt"><thead><tr><th>ASSET</th><th class="tr">RATE</th><th>BIAS</th></tr></thead><tbody id="tb-fund"></tbody></table>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">RSI HEATMAP</div>
+        <div id="rsi-panel"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F3 STOCKS -->
+<div class="panel" id="panel-stocks">
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">US INDICES <span class="upd" id="upd-stocks">&mdash;</span></div>
+        <table class="bt"><thead><tr><th>INDEX</th><th class="tr">PRICE</th><th class="tr">CHG%</th><th class="tr">HIGH</th><th class="tr">LOW</th></tr></thead><tbody id="tb-idx"></tbody></table>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">INTERNATIONAL INDICES</div>
+        <table class="bt"><thead><tr><th>INDEX</th><th class="tr">PRICE</th><th class="tr">CHG%</th><th class="tr">HIGH</th><th class="tr">LOW</th></tr></thead><tbody id="tb-intl-idx"></tbody></table>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">COMMODITIES</div>
+        <table class="bt"><thead><tr><th>COMMODITY</th><th class="tr">PRICE</th><th class="tr">CHG%</th></tr></thead><tbody id="tb-cmd"></tbody></table>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col c3">
+      <div class="card">
+        <div class="ctitle">TOP STOCKS &mdash; FUNDAMENTALS</div>
+        <table class="bt"><thead><tr><th>TICKER</th><th>NAME</th><th class="tr">PRICE</th><th class="tr">CHG%</th><th class="tr">P/E</th><th class="tr">EPS</th><th class="tr">52W H</th><th class="tr">52W L</th><th class="tr">ATH%</th><th>REC</th><th>SECTOR</th></tr></thead><tbody id="tb-stocks-full"></tbody></table>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">SECTOR PERFORMANCE (SPDR ETFs)</div>
+        <div id="sec-panel"></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">MOEX &mdash; MOSCOW EXCHANGE</div>
+        <div class="sr"><span class="sl">IMOEX Index</span><span class="sv" id="moex-price">&mdash;</span></div>
+        <table class="bt" style="margin-top:6px"><thead><tr><th>TICKER</th><th>NAME</th><th class="tr">PRICE</th><th class="tr">CHG%</th></tr></thead><tbody id="tb-moex"></tbody></table>
+        <div style="margin-top:6px;font-size:10px;color:var(--dim);font-style:italic">Data may be limited due to sanctions</div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">EARNINGS CALENDAR</div>
+        <div id="earnings-cal"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">COMPANY CONNECTIONS</div>
+        <div id="company-connections" style="font-size:11px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F4 FOREX -->
+<div class="panel" id="panel-forex">
+  <div class="row">
+    <div class="col c2">
+      <div class="card">
+        <div class="ctitle">FX RATES &mdash; MAJORS <span class="upd" id="upd-forex">&mdash;</span></div>
+        <table class="bt"><thead><tr><th>PAIR</th><th class="tr">RATE</th><th class="tr">CHG%</th><th class="tr">HIGH</th><th class="tr">LOW</th><th>TREND</th></tr></thead><tbody id="tb-fx-majors"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">FX RATES &mdash; MINORS</div>
+        <table class="bt"><thead><tr><th>PAIR</th><th class="tr">RATE</th><th class="tr">CHG%</th><th class="tr">HIGH</th><th class="tr">LOW</th><th>TREND</th></tr></thead><tbody id="tb-fx-minors"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">FX RATES &mdash; EMERGING</div>
+        <table class="bt"><thead><tr><th>PAIR</th><th class="tr">RATE</th><th class="tr">CHG%</th><th class="tr">HIGH</th><th class="tr">LOW</th><th>TREND</th></tr></thead><tbody id="tb-fx-emerging"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">CARRY TRADE OPPORTUNITIES</div>
+        <table class="bt"><thead><tr><th>PAIR</th><th class="tr">LONG RATE</th><th class="tr">SHORT RATE</th><th class="tr">CARRY</th><th>RISK</th></tr></thead><tbody id="tb-carry"></tbody></table>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">US DOLLAR INDEX (DXY)</div>
+        <div style="font-size:32px;text-align:center;padding:10px 0;font-weight:700" id="dxy-p">&mdash;</div>
+        <div style="text-align:center;font-size:15px" id="dxy-c">&mdash;</div>
+        <div class="sr" style="margin-top:6px"><span class="sl">High</span><span class="sv" id="dxy-h">&mdash;</span></div>
+        <div class="sr"><span class="sl">Low</span><span class="sv" id="dxy-l">&mdash;</span></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">CURRENCY STRENGTH METER</div>
+        <div id="ccy-strength"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">CB MEETING COUNTDOWN</div>
+        <div id="cb-meetings"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F5 BONDS & RATES -->
+<div class="panel" id="panel-bonds">
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">US YIELD CURVE <span class="upd" id="upd-bonds">&mdash;</span></div>
+        <div id="bonds-yc" style="display:flex;flex-direction:column;gap:5px;padding:3px 0"></div>
+        <div id="bonds-yc-alert" style="display:none;margin-top:5px;padding:4px 8px;background:#180000;border:1px solid var(--red);font-size:11px;color:var(--red)"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">GLOBAL 10-YEAR YIELDS</div>
+        <table class="bt"><thead><tr><th>COUNTRY</th><th class="tr">10Y YIELD</th></tr></thead><tbody id="tb-global-yields"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">TIPS BREAKEVEN INFLATION</div>
+        <div class="sr"><span class="sl">5Y TIPS</span><span class="sv" id="tip-5y">&mdash;</span></div>
+        <div class="sr"><span class="sl">10Y TIPS</span><span class="sv" id="tip-10y">&mdash;</span></div>
+        <div class="sr"><span class="sl">Real Yield (10Y - CPI)</span><span class="sv" id="real-yield">&mdash;</span></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">CREDIT SPREADS</div>
+        <div class="sr"><span class="sl">IG (BAA-FFR)</span><span class="sv" id="spread-ig">&mdash;</span></div>
+        <div class="sr"><span class="sl">HY (ICE BofA)</span><span class="sv" id="spread-hy">&mdash;</span></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">FED FUNDS FUTURES</div>
+        <table class="bt"><thead><tr><th>MEETING</th><th class="tr">HOLD</th><th class="tr">CUT</th><th class="tr">HIKE</th></tr></thead><tbody id="tb-fed-futures"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">BOND ETF PERFORMANCE</div>
+        <table class="bt"><thead><tr><th>ETF</th><th class="tr">PRICE</th><th class="tr">CHG%</th></tr></thead><tbody id="tb-bond-etfs"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">BOND vs EQUITY RELATIVE VALUE</div>
+        <div id="bond-equity-rv" style="font-size:13px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F6 NEWS & AI ANALYSIS -->
+<div class="panel" id="panel-news">
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">CRYPTO NEWS <span class="upd" id="upd-news">&mdash;</span></div>
+        <div id="news-crypto" style="max-height:280px;overflow-y:auto"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">MACRO / STOCKS NEWS</div>
+        <div id="news-macro" style="max-height:240px;overflow-y:auto"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">GOOGLE NEWS &mdash; BUSINESS</div>
+        <div id="news-google" style="max-height:200px;overflow-y:auto"></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">r/WALLSTREETBETS <span class="b bo">REDDIT</span></div>
+        <div id="news-wsb" style="max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">r/BITCOIN <span class="b bo">REDDIT</span></div>
+        <div id="news-rbtc" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">TELEGRAM CHANNELS</div>
+        <div id="news-tg" style="max-height:160px;overflow-y:auto"></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">AI NEWS ANALYST <span class="b bc">CLAUDE</span></div>
+        <div id="ai-news-full"></div>
+        <div style="margin-top:8px">
+          <button class="btn btng btn-sm" onclick="askClaudeNews()">REFRESH AI ANALYSIS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F7 GEOPOLITICAL -->
+<div class="panel" id="panel-geo">
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">GEOPOLITICAL RISK SCORE <span class="upd" id="upd-geo">&mdash;</span></div>
+        <div class="risk-big" id="geo-score">&mdash;</div>
+        <div class="gbar" style="height:10px"><div class="gfill" id="geo-bar" style="width:0%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-top:2px"><span>LOW RISK</span><span>HIGH RISK</span></div>
+        <div style="margin-top:8px" id="geo-impact-grid"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">POLITICAL STABILITY INDEX</div>
+        <div id="political-stability"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">GLOBAL NEWS TONE (GDELT)</div>
+        <div class="sr"><span class="sl">Average Tone (24h)</span><span class="sv" id="gdelt-tone">&mdash;</span></div>
+        <div style="margin-top:6px;font-size:10px;color:var(--dim)">TOP COUNTRY EVENTS</div>
+        <div id="gdelt-countries" style="margin-top:4px"></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">EARTHQUAKE ALERTS (USGS 24H)</div>
+        <div id="quake-list"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">CYBER THREAT INTELLIGENCE (CISA KEV)</div>
+        <div id="cyber-list"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">SANCTIONS TRACKER</div>
+        <div id="sanctions-list"></div>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">ELECTION CALENDAR 2026</div>
+        <div id="election-calendar"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">COMMODITY GEOPOLITICAL RISK</div>
+        <div id="commodity-geo"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">MARKET IMPACT ANALYSIS</div>
+        <div id="geo-market-impact"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">ECONOMIC CALENDAR (HIGH IMPACT) <span class="upd" id="upd-econ">&mdash;</span></div>
+        <table class="bt"><thead><tr><th>DATE</th><th>TIME</th><th>EVENT</th><th>CTRY</th><th>IMP</th><th class="tr">FCST</th><th class="tr">PREV</th></tr></thead><tbody id="tb-econ-cal"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F8 SIGNALS -->
+<div class="panel" id="panel-signals">
+  <div class="row">
+    <div class="col c2">
+      <div class="card">
+        <div class="ctitle">OPEN POSITIONS</div>
+        <table class="bt"><thead><tr><th>PAIR</th><th>SIDE</th><th class="tr">ENTRY</th><th class="tr">STOP</th><th class="tr">TARGET</th><th class="tr">SIZE</th><th>CONF</th><th>OPENED</th></tr></thead><tbody id="tb-pos"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">RECENT TRADES</div>
+        <table class="bt"><thead><tr><th>TIME</th><th>PAIR</th><th>ACTION</th><th class="tr">PRICE</th><th class="tr">PNL</th><th>RESULT</th></tr></thead><tbody id="tb-trades"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="ctitle">GEOPOLITICAL RISK IMPACT ON TRADES <span class="b bc">AUTO</span></div>
+        <div id="geo-trade-impact" style="font-size:13px;color:var(--dim);padding:4px 0">Waiting for data...</div>
+      </div>
+    </div>
+    <div class="col c1" style="max-width:300px">
+      <div class="card">
+        <div class="ctitle">MARKET REGIME</div>
+        <div id="market-regime" style="text-align:center;padding:6px 0;font-size:20px;font-weight:bold">&mdash;</div>
+      </div>
+      <div class="card">
+        <div class="ctitle">AGENT STATUS</div>
+        <div id="sig-status"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">PERFORMANCE</div>
+        <div id="sig-perf"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">RISK-OFF TRIGGERS</div>
+        <div id="risk-off-triggers" style="font-size:11px"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">CROSS-ASSET CORRELATION</div>
+        <div style="overflow-x:auto"><table class="ct" id="corr-t"></table></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- F9 AGENT -->
+<div class="panel" id="panel-agent">
+  <div class="row">
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">AGENT OVERVIEW</div>
+        <div id="ag-overview"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">P&amp;L HISTORY (SPARKLINE)</div>
+        <div id="ag-spark" style="padding:4px 0">
+          <div class="sparkline" id="spark-line" style="font-size:14px;letter-spacing:2px">No trade history</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:4px" id="spark-range"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctitle">TRADE HISTORY</div>
+        <table class="bt"><thead><tr><th>TIME</th><th>PAIR</th><th>TYPE</th><th>ACTION</th><th class="tr">ENTRY</th><th class="tr">EXIT</th><th class="tr">PNL</th><th>RESULT</th></tr></thead><tbody id="tb-ag-trades"></tbody></table>
+      </div>
+    </div>
+    <div class="col c1">
+      <div class="card">
+        <div class="ctitle">PERFORMANCE STATS</div>
+        <div id="ag-perf-stats"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">CRYPTO POSITIONS</div>
+        <div id="ag-pos-crypto"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">STOCK POSITIONS</div>
+        <div id="ag-pos-stock"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">FOREX POSITIONS</div>
+        <div id="ag-pos-forex"></div>
+      </div>
+      <div class="card">
+        <div class="ctitle">AI TRADE ANALYSIS <span class="b bc">CLAUDE</span></div>
+        <div class="ai-box loading" id="ai-trades">Click the button to analyze your trades.</div>
+        <div style="margin-top:8px">
+          <button class="btn btng" onclick="askClaude()">ASK CLAUDE ABOUT MY TRADES</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctitle">EXPORT</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="exportCSV('crypto')">CRYPTO CSV</button>
+          <button class="btn btn-sm" onclick="exportCSV('stocks')">STOCKS CSV</button>
+          <button class="btn btn-sm" onclick="exportCSV('forex')">FOREX CSV</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- Status bar -->
+<div id="sbar">
+  <span>SRC:</span>
+  <span><span class="dot" id="d-crypto"></span>CRYPTO</span>
+  <span><span class="dot" id="d-macro"></span>MACRO</span>
+  <span><span class="dot" id="d-stocks"></span>STOCKS</span>
+  <span><span class="dot" id="d-forex"></span>FOREX</span>
+  <span><span class="dot" id="d-funding"></span>FUND</span>
+  <span><span class="dot" id="d-geo"></span>GEO</span>
+  <span><span class="dot" id="d-news"></span>NEWS</span>
+  <span><span class="dot" id="d-defi_tvl"></span>DEFI</span>
+  <span id="sb-ai" style="color:var(--dim)">AI: &mdash;</span>
+  <span id="sb-clients" style="margin-left:auto">C:1</span>
+  <span id="sb-ts">&mdash;</span>
+</div>
+
+<script>
+'use strict';
+let D = {}, wsRetry = 1000, ws = null, dataTs = 0;
+
+const $ = id => document.getElementById(id);
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;');
+}
+const M = '\u2014';
+const U = '\u25b2', D2 = '\u25bc';
+const fmt = {
+  p:  (v, d=2) => v==null ? M : Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}),
+  pct: v => v==null ? M : (v>=0?'+':'')+Number(v).toFixed(2)+'%',
+  big: v => { if(v==null) return M; const a=Math.abs(v); if(a>=1e12) return (v/1e12).toFixed(2)+'T'; if(a>=1e9) return (v/1e9).toFixed(2)+'B'; if(a>=1e6) return (v/1e6).toFixed(2)+'M'; return Number(v).toLocaleString(); },
+  rate: v => v==null ? M : (v>=0?'+':'')+(Number(v)*100).toFixed(4)+'%',
+};
+function cc(v) { return v==null?'':v>=0?'pos':'neg'; }
+function scColor(s) { const u=(s||'').toUpperCase(); return u==='HAWKISH'?'br':u==='DOVISH'?'bg':'bd'; }
+function setText(id, txt) { const e=$(id); if(e) e.textContent = txt==null ? M : String(txt); }
+function setHTML(id, html) { const e=$(id); if(e) e.innerHTML = html; }
+
+function secsAgo(ts) {
+  if(!ts) return '';
+  const s = Math.floor(Date.now()/1000 - ts);
+  if(s < 60) return s+'s ago';
+  if(s < 3600) return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+
+function isBreaking(published) {
+  if(!published) return false;
+  try { return (Date.now() - new Date(published).getTime()) < 30*60*1000; } catch { return false; }
+}
+
+function daysUntil(dateStr) {
+  if(!dateStr) return null;
+  try { return Math.max(0, Math.ceil((new Date(dateStr+'T00:00:00Z') - Date.now()) / 86400000)); } catch { return null; }
+}
+
+function sparkline(prices) {
+  if(!prices||!prices.length) return '';
+  const CHARS = '\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588';
+  const mn = Math.min(...prices.filter(p=>p!=null));
+  const mx = Math.max(...prices.filter(p=>p!=null));
+  const range = mx - mn || 1;
+  return prices.filter(p=>p!=null).map(v => CHARS[Math.min(7, Math.floor((v-mn)/range*8))]).join('');
+}
+
+// -- Clock --
+function clock() {
+  const n=new Date(), h=n.getUTCHours(), m=n.getUTCMinutes(), s=n.getUTCSeconds();
+  $('hdr-time').textContent = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+' UTC';
+  badge('bny', (h===13&&m>=30)||(h>13&&h<20)||(h===20&&m===0), 'NY','ny');
+  badge('blon', h>=8&&(h<16||(h===16&&m<=30)), 'LON','lon');
+  badge('btok', h<6||h>=23, 'TOK','tok');
+  badge('bsyd', h>=21||h<6, 'SYD','syd');
+  badge('bfra', h>=7&&(h<15||(h===15&&m<=30)), 'FRA','fra');
+  badge('bhk', h>=1&&h<9, 'HK','hk');
+  badge('bsgp', h>=1&&h<9, 'SGP','sgp');
+  badge('bmsk', h>=6&&h<15, 'MSK','msk');
+  if(dataTs) {
+    $('lupd') && ($('lupd').textContent = 'Upd: '+secsAgo(dataTs));
+    document.querySelectorAll('.upd').forEach(el => { if(el.dataset.ts) el.textContent = secsAgo(parseInt(el.dataset.ts)); });
+  }
+}
+function badge(id, open, sym, cls) {
+  const e=$(id); if(!e) return;
+  e.className = open ? 'sbadge '+cls : 'sbadge closed';
+  e.textContent = sym + (open ? ' OPEN' : '');
+}
+setInterval(clock, 1000); clock();
+
+// -- WebSocket --
+function connect() {
+  const proto = location.protocol==='https:'?'wss:':'ws:';
+  ws = new WebSocket(proto+'//'+location.host+'/ws');
+  ws.onopen = () => { wsRetry=1000; setConn('live'); };
+  ws.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if(msg.type==='loading') { setConn('loading'); return; }
+      if(msg.type==='ping') { setText('sb-clients','C:'+msg.clients); return; }
+      if(msg.type==='data') { D = msg; dataTs = msg.ts||0; hideLoading(); renderAll(); $('sb-ts').textContent = new Date(msg.ts*1000).toISOString().slice(11,16)+' UTC'; }
+    } catch(err) {}
+  };
+  ws.onerror = () => setConn('off');
+  ws.onclose = () => { setConn('off'); setTimeout(()=>{ wsRetry=Math.min(wsRetry*2,30000); connect(); }, wsRetry); };
+}
+function setConn(s) {
+  const e=$('conn');
+  if(s==='live')    { e.className='clive';  e.textContent='\u25cf LIVE'; }
+  if(s==='off')     { e.className='coff';   e.textContent='\u25cf OFFLINE'; }
+  if(s==='loading') { e.className='cload';  e.textContent='\u25cf LOADING'; }
+}
+
+// -- Loading --
+const LM=['Connecting...','Fetching prices...','Loading FRED macro...','Computing indicators...','Syncing geo data...','Fetching news feeds...','Loading fundamentals...','Ready.'];
+let lp=0, li=0;
+const liv=setInterval(()=>{ lp=Math.min(lp+Math.random()*10,90); $('lb').style.width=lp+'%'; if(li<LM.length-1) $('lmsg').textContent=LM[li++]; },500);
+function hideLoading() {
+  clearInterval(liv); $('lb').style.width='100%'; $('lmsg').textContent='Ready.';
+  setTimeout(()=>{ const l=$('loading'); l.style.transition='opacity .35s'; l.style.opacity='0'; setTimeout(()=>l.style.display='none',350); },180);
+}
+
+// -- Tabs --
+const PANELS=['macro','crypto','stocks','forex','bonds','news','geo','signals','agent'];
+function sw(name) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.p===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+name));
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>sw(t.dataset.p)));
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  if(e.key>='1'&&e.key<='9') { sw(PANELS[+e.key-1]); return; }
+  if(/^F[1-9]$/.test(e.key)) { e.preventDefault(); sw(PANELS[+e.key.slice(1)-1]); }
+});
+
+// -- Render all --
+function renderAll() {
+  renderTicker(); renderMacro(); renderCrypto(); renderStocks();
+  renderForex(); renderBonds(); renderNews(); renderGeo();
+  renderSignals(); renderAgent(); renderApiStatus();
+  document.querySelectorAll('[id^="upd-"]').forEach(el => { if(dataTs) { el.dataset.ts = dataTs; el.textContent = secsAgo(dataTs); } });
+}
+
+// -- Ticker --
+function setTk(id, price, chg, dec) {
+  const e=$(id); if(!e) return;
+  if(price==null) { e.textContent=M; e.className='tf'; return; }
+  const up = chg==null?null:chg>=0;
+  e.className = up===null?'tf':up?'tp':'tn';
+  e.textContent = Number(price).toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec})+(up===null?'':up?' '+U:' '+D2);
+}
+function renderTicker() {
+  const c=D.crypto||{}, st=D.stocks||{}, fx=D.forex||{}, geo=D.geo||{};
+  setTk('tk-btc', c.BTC?.price, c.BTC?.change_24h, 0);
+  setTk('tk-eth', c.ETH?.price, c.ETH?.change_24h, 2);
+  setTk('tk-sol', c.SOL?.price, c.SOL?.change_24h, 2);
+  setTk('tk-spx', st['^GSPC']?.price, st['^GSPC']?.change_pct, 2);
+  setTk('tk-ndx', st['^NDX']?.price, st['^NDX']?.change_pct, 2);
+  setTk('tk-vix', st['^VIX']?.price, null, 2);
+  setTk('tk-eur', fx['EURUSD=X']?.price, fx['EURUSD=X']?.change_pct, 4);
+  setTk('tk-gbp', fx['GBPUSD=X']?.price, fx['GBPUSD=X']?.change_pct, 4);
+  setTk('tk-jpy', fx['USDJPY=X']?.price, fx['USDJPY=X']?.change_pct, 2);
+  setTk('tk-gold',st['GC=F']?.price, st['GC=F']?.change_pct, 2);
+  setTk('tk-oil', st['CL=F']?.price, st['CL=F']?.change_pct, 2);
+  setTk('tk-dxy', fx['DX-Y.NYB']?.price, fx['DX-Y.NYB']?.change_pct, 3);
+  const rs = geo.risk_score;
+  const ge = $('tk-geo');
+  if(ge) { ge.className = rs==null?'tf':rs>65?'tn':rs<35?'tp':'tf'; ge.textContent = rs!=null ? rs+'/100' : M; }
+}
+
+// -- F1 MACRO --
+const MACRO_DEFS = [
+  ['Fed Funds Rate','fed_funds','%'],['CPI Index','cpi',''],['PPI Index','ppi',''],
+  ['PCE (Fed preferred)','pce',''],['Unemployment','unemployment','%'],['GDP Growth','gdp_growth','%'],
+  ['M2 Money Supply','m2','B'],['Fed Balance Sheet','fed_balance','M'],
+];
+function renderMacro() {
+  const m=D.macro||{}, fg=D.fear_greed||[], cb=D.cb_rates||[], geo=D.geo||{};
+  let h='';
+  for(const [lbl,key,unit] of MACRO_DEFS) {
+    const d=m[key]||{};
+    let v;
+    if(d.value==null) { v = M; }
+    else if(unit==='B') { v = fmt.big(d.value); }
+    else if(unit==='M') { v = fmt.big(d.value*1e6); }
+    else { v = Number(d.value).toFixed(2)+unit; }
+    const st = d.value==null ? ' <span class="err-badge">ERR</span>' : '';
+    h+=`<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${v}${st}</td><td class="tr dim">${esc(d.date||M)}</td></tr>`;
+  }
+  setHTML('tb-macro', h||'<tr><td colspan="3" class="dim">No data</td></tr>');
+
+  renderYieldCurve('yc', 'yc-alert', m);
+
+  // CB rates
+  let cbh='';
+  for(const b of cb) cbh+=`<tr><td class="sym">${esc(b.short)}</td><td class="tr">${b.rate.toFixed(2)}%</td><td><span class="b ${scColor(b.stance)}">${esc(b.stance)}</span></td></tr>`;
+  setHTML('tb-cb', cbh||'<tr><td colspan="3" class="dim">No data</td></tr>');
+
+  if(fg.length) renderFG('fg-lbl','fg-val','fg-bar','fg-hist',fg[0],fg);
+
+  // Recession probability
+  const rec = D.recession || {};
+  const rp = rec.probability;
+  const rpEl = $('recess-pct');
+  if(rpEl) { rpEl.textContent = rp!=null ? rp+'%' : M; rpEl.className = 'pct '+(rp>=60?'neg':rp>=35?'by':'pos'); }
+  setText('recess-level', rec.level || M);
+  const rBar = $('recess-bar');
+  if(rBar && rp!=null) { rBar.style.width=rp+'%'; rBar.className='gfill '+(rp>=60?'gf':rp>=35?'gn':'gg'); }
+  const rReasons = $('recess-reasons');
+  if(rReasons) { rReasons.innerHTML = (rec.reasons||[]).map(r=>'<div style="padding:1px 0;color:var(--dim);">\u2022 '+esc(r)+'</div>').join('') || '<div class="dim">No recession signals</div>'; }
+
+  // Geo overlay
+  const rs=geo.risk_score, mi=geo.market_impact||{};
+  const rsEl=$('geo-score-macro');
+  if(rsEl) { rsEl.textContent=rs!=null?rs+'/100':M; rsEl.className='sv '+(rs>65?'neg':rs<35?'pos':''); }
+  setText('geo-regime-macro', rs==null?M : rs>65?'HIGH RISK \u2014 RISK-OFF':rs>45?'MODERATE RISK':rs>25?'LOW-MODERATE':'LOW RISK \u2014 RISK-ON');
+  const impEl=$('geo-crypto-macro'); if(impEl) { impEl.textContent=mi.crypto||M; impEl.className='sv '+(mi.crypto==='RISK-OFF'?'neg':mi.crypto==='RISK-ON'?'pos':''); }
+  const eqEl=$('geo-equity-macro'); if(eqEl) { eqEl.textContent=mi.stocks||M; eqEl.className='sv '+(mi.stocks==='BEARISH'?'neg':mi.stocks==='BULLISH'?'pos':''); }
+
+  const aiEl=$('ai-macro');
+  if(aiEl) {
+    const ai = D.claude_macro;
+    if(ai && ai.text) { aiEl.innerHTML = esc(ai.text) + '<div class="ai-badge">AI</div>' + (ai.timestamp ? '<div class="ai-ts">Updated: '+secsAgo(ai.timestamp)+'</div>' : ''); aiEl.className='ai-box'; }
+    else if(D.api_status) { aiEl.textContent='AI analysis requires ANTHROPIC_API_KEY.'; aiEl.className='ai-box'; }
+  }
+}
+
+function renderYieldCurve(containerId, alertId, m) {
+  const yields=[['1M','us1m'],['3M','us3m'],['6M','us6m'],['1Y','us1y'],['2Y','us2y'],['5Y','us5y'],['10Y','us10y'],['30Y','us30y']];
+  const maxY = Math.max(...yields.map(([,k])=>(m[k]||{}).value||0),0.01);
+  const yc = $(containerId); if(!yc) return;
+  yc.textContent='';
+  for(const [id,key] of yields) {
+    const v=(m[key]||{}).value, pct=v!=null?Math.max(v/maxY*100,4):0;
+    const col = ['10Y','30Y'].includes(id) ? 'var(--orange)' : 'var(--cyan)';
+    const row=document.createElement('div'); row.className='sbrow';
+    const lbl=document.createElement('span'); lbl.textContent=id; lbl.style.cssText='width:36px;color:var(--dim)';
+    const bar=document.createElement('div'); bar.className='sbbar';
+    const fill=document.createElement('div'); fill.className='sbfill'; fill.style.cssText=`width:${pct}%;background:${col}`;
+    bar.appendChild(fill);
+    const val=document.createElement('span'); val.textContent=v!=null?v.toFixed(2)+'%':M; val.style.cssText='width:52px;text-align:right';
+    row.appendChild(lbl); row.appendChild(bar); row.appendChild(val);
+    yc.appendChild(row);
+  }
+  const alertEl = $(alertId);
+  if(alertEl) {
+    if(D.yield_curve_inverted) { alertEl.style.display='block'; alertEl.textContent='\u26a0 YIELD CURVE INVERTED \u2014 2Y yield exceeds 10Y (recession indicator)'; }
+    else { alertEl.style.display='none'; }
+  }
+}
+
+function renderFG(lblId,valId,barId,histId,cur,hist) {
+  const v=cur?.value, l=cur?.label||M;
+  setText(lblId, l); setText(valId, v??M);
+  const bar=$(barId);
+  if(bar&&v!=null) { bar.style.width=v+'%'; bar.className='gfill '+(v>=60?'gg':v<=40?'gf':'gn'); }
+  const hel=$(histId); if(!hel) return;
+  hel.textContent='';
+  (hist||[]).slice(0,7).reverse().forEach(d=>{
+    const h2=d?.value!=null?Math.round(d.value/100*36):4;
+    const col=d?.value>=60?'var(--green)':d?.value<=40?'var(--red)':'var(--yellow)';
+    const b=document.createElement('div'); b.style.cssText=`flex:1;height:${h2}px;background:${col};opacity:.8;border-radius:2px 2px 0 0`;
+    b.title=(d?.label||'')+'('+d?.value+')'; hel.appendChild(b);
+  });
+}
+
+// -- F2 CRYPTO --
+function renderCrypto() {
+  const c=D.crypto||{}, r=D.rsi||{}, fn=D.funding||{}, g=D.global||{}, defi=D.defi_tvl||{};
+  let h='';
+  const sorted = Object.entries(c).sort((a,b)=>(a[1].rank||999)-(b[1].rank||999));
+  for(const [sym,d] of sorted) {
+    if(!d) continue;
+    const rsi=r[sym], fr=fn[sym];
+    const pDec=d.price>=1000?0:d.price>=1?2:4;
+    const rsiC=rsi==null?'':rsi>=70?'neg':rsi<=30?'pos':'neu';
+    const frC=fr==null?'':fr>0.0005?'neg':fr<-0.0005?'pos':'neu';
+    const spark = d.sparkline_7d||[];
+    const sparkStr = sparkline(spark);
+    const sparkC = spark.length>=2 ? (spark[spark.length-1]>=spark[0]?'spark-up':'spark-down') : 'spark-flat';
+    h+=`<tr><td class="dim">${d.rank||''}</td><td class="sym">${esc(sym)}</td><td class="tr price">${fmt.p(d.price,pDec)}</td><td class="tr ${cc(d.change_24h)}">${fmt.pct(d.change_24h)}</td><td class="tr ${cc(d.change_7d)}">${fmt.pct(d.change_7d)}</td><td class="sparkline ${sparkC}">${sparkStr}</td><td class="tr ${rsiC}">${rsi??M}</td><td class="tr ${frC}">${fr!=null?fmt.rate(fr):M}</td><td class="tr dim">${fmt.big(d.volume)}</td><td class="tr dim">${fmt.big(d.market_cap)}</td><td class="tr dim">${d.dominance_pct!=null?d.dominance_pct+'%':M}</td><td class="tr ${d.ath_distance_pct!=null?'neg':''}">${d.ath_distance_pct!=null?d.ath_distance_pct+'%':M}</td></tr>`;
+  }
+  setHTML('tb-crypto', h||'<tr><td colspan="12" class="dim">No data</td></tr>');
+
+  setText('dom-btc', g.btc_dominance!=null?g.btc_dominance.toFixed(1)+'%':M);
+  setText('dom-cap', fmt.big(g.total_market_cap));
+  const altEl=$('dom-alt'); if(altEl) { altEl.textContent=g.alt_season_index!=null?g.alt_season_index+'/100':M; altEl.className='sv '+(g.alt_season_index>=75?'pos':g.alt_season_index<=25?'neg':''); }
+  setText('dom-stable', g.stablecoin_dom!=null?g.stablecoin_dom.toFixed(1)+'%':M);
+  const halvEl=$('dom-halving'); if(halvEl) { halvEl.textContent=g.btc_halving_days!=null?g.btc_halving_days+' days (~Apr 2028)':M; }
+  setText('dom-defi', defi.tvl!=null?'$'+fmt.big(defi.tvl):M);
+
+  let fh='';
+  for(const [sym,fr] of Object.entries(fn)) {
+    const bias=fr>0.0005?'LONGS PAY':fr<-0.0005?'SHORTS PAY':'NEUTRAL';
+    const bc=fr>0.0005?'br':fr<-0.0005?'bg':'bd';
+    fh+=`<tr><td class="sym">${esc(sym)}</td><td class="tr ${fr>0?'neg':'pos'}">${fmt.rate(fr)}</td><td><span class="b ${bc}">${bias}</span></td></tr>`;
+  }
+  setHTML('tb-fund', fh);
+
+  const rsiEl=$('rsi-panel'); if(!rsiEl) return;
+  rsiEl.textContent='';
+  for(const [sym,v] of Object.entries(r)) {
+    const pct=v!=null?Math.min(Math.max(v,0),100):50;
+    const col=v>=70?'var(--red)':v<=30?'var(--green)':'var(--cyan)';
+    const row=document.createElement('div'); row.className='sbrow'; row.style.marginBottom='4px';
+    const lbl=document.createElement('span'); lbl.textContent=sym; lbl.style.cssText='width:34px;color:var(--dim)';
+    const bar=document.createElement('div'); bar.className='sbbar';
+    const fill=document.createElement('div'); fill.className='sbfill'; fill.style.cssText=`width:${pct}%;background:${col}`;
+    bar.appendChild(fill);
+    const val=document.createElement('span'); val.textContent=v??M; val.style.cssText=`width:38px;text-align:right;color:${col}`;
+    row.appendChild(lbl); row.appendChild(bar); row.appendChild(val);
+    rsiEl.appendChild(row);
+  }
+}
+
+// -- F3 STOCKS --
+const IDXL={'^GSPC':'S&P 500','^NDX':'NASDAQ 100','^DJI':'DOW JONES','^VIX':'VIX','^RUT':'RUSSELL 2K'};
+const SECL={'XLK':'Technology','XLF':'Financials','XLE':'Energy','XLV':'Health Care','XLI':'Industrials','XLB':'Materials','XLRE':'Real Estate','XLC':'Comm Svcs','XLY':'Cons Disc','XLP':'Cons Staples','XLU':'Utilities'};
+
+function sRow(sym, lbl, d) {
+  if(!d||!d.price) return `<tr><td class="sym">${esc(lbl)}</td><td colspan="4" class="dim">${M}</td></tr>`;
+  return `<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td><td class="tr dim">${fmt.p(d.day_high)}</td><td class="tr dim">${fmt.p(d.day_low)}</td></tr>`;
+}
+
+function renderStocks() {
+  const st=D.stocks||{}, cd=D.company_data||{}, cc2=D.company_connections||{};
+
+  setHTML('tb-idx', Object.entries(IDXL).map(([s,l])=>sRow(s,l,st[s])).join(''));
+
+  const intlMap = D.intl_indices||{};
+  let intlH='';
+  for(const [sym,lbl] of Object.entries(intlMap)) intlH += sRow(sym, lbl, st[sym]);
+  setHTML('tb-intl-idx', intlH||'<tr><td colspan="5" class="dim">No data</td></tr>');
+
+  const cmdMap = D.commodities_map||{};
+  let cmdH='';
+  for(const [s,l] of Object.entries(cmdMap)) {
+    const d=st[s]; if(!d||!d.price) { cmdH+=`<tr><td class="sym">${esc(l)}</td><td colspan="2" class="dim">${M}</td></tr>`; continue; }
+    cmdH+=`<tr><td class="sym">${esc(l)}</td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
+  }
+  setHTML('tb-cmd', cmdH||'<tr><td colspan="3" class="dim">No data</td></tr>');
+
+  // Top stocks with fundamentals
+  let mh='';
+  for(const [sym,info] of Object.entries(cd)) {
+    const d=st[sym]||{};
+    const recC = d.recommendation==='BUY'||d.recommendation==='STRONG_BUY'?'bg':d.recommendation==='SELL'||d.recommendation==='STRONG_SELL'?'br':'bd';
+    mh+=`<tr><td class="sym">${esc(sym)}</td><td style="font-size:10px">${esc(info.name||'')}</td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td><td class="tr">${d.pe_ratio!=null?d.pe_ratio.toFixed(1):M}</td><td class="tr">${d.eps!=null?'$'+d.eps.toFixed(2):M}</td><td class="tr dim">${fmt.p(d.fifty_two_week_high)}</td><td class="tr dim">${fmt.p(d.fifty_two_week_low)}</td><td class="tr ${d.dist_52w_high_pct!=null?'neg':''}">${d.dist_52w_high_pct!=null?d.dist_52w_high_pct+'%':M}</td><td>${d.recommendation?'<span class="b '+recC+'">'+esc(d.recommendation)+'</span>':M}</td><td style="font-size:10px" class="dim">${esc(info.sector||'')}</td></tr>`;
+  }
+  setHTML('tb-stocks-full', mh||'<tr><td colspan="11" class="dim">No data</td></tr>');
+
+  // Sectors
+  const vals=Object.entries(SECL).map(([s,l])=>[l,(st[s]||{}).change_pct]).sort((a,b)=>(b[1]||0)-(a[1]||0));
+  const mx=Math.max(...vals.map(v=>Math.abs(v[1]||0)),0.01);
+  const sp=$('sec-panel'); if(sp) {
+    sp.textContent='';
+    for(const [lbl,v] of vals) {
+      const pct=v!=null?Math.abs(v)/mx*100:0;
+      const col=v==null?'var(--dim)':v>=0?'var(--green)':'var(--red)';
+      const row=document.createElement('div'); row.className='sbrow'; row.style.marginBottom='4px';
+      const l=document.createElement('span'); l.textContent=lbl; l.style.cssText='width:88px;font-size:10px;color:var(--dim)';
+      const b=document.createElement('div'); b.className='sbbar';
+      const fi=document.createElement('div'); fi.className='sbfill'; fi.style.cssText=`width:${pct}%;background:${col}`;
+      b.appendChild(fi);
+      const vl=document.createElement('span'); vl.style.cssText=`width:52px;text-align:right;color:${col}`; vl.textContent=v!=null?fmt.pct(v):M;
+      row.appendChild(l); row.appendChild(b); row.appendChild(vl);
+      sp.appendChild(row);
+    }
+  }
+
+  // MOEX
+  const moexIdx = st['IMOEX.ME'];
+  const moexPriceEl = $('moex-price');
+  if(moexPriceEl) { moexPriceEl.innerHTML = moexIdx ? `${fmt.p(moexIdx.price)} <span class="${cc(moexIdx.change_pct)}">${fmt.pct(moexIdx.change_pct)}</span>` : M; }
+  const moexStocks = D.moex_stocks||{};
+  let moexH='';
+  for(const [sym,lbl] of Object.entries(moexStocks)) {
+    const d=st[sym]||{};
+    moexH+=`<tr><td class="sym">${esc(sym.replace('.ME',''))}</td><td style="font-size:10px">${esc(lbl)}</td><td class="tr">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
+  }
+  setHTML('tb-moex', moexH||'<tr><td colspan="4" class="dim">No data</td></tr>');
+
+  // Earnings calendar
+  const ecEl=$('earnings-cal');
+  if(ecEl) {
+    const earn = D.earnings_calendar||[];
+    if(!earn.length) { ecEl.innerHTML='<div class="dim">No upcoming earnings</div>'; }
+    else {
+      ecEl.innerHTML='';
+      for(const e of earn) {
+        const days = daysUntil(e.date);
+        const urg = days!=null&&days<=3?'neg':days!=null&&days<=7?'by':'dim';
+        ecEl.innerHTML+=`<div class="sr"><span class="sl"><span class="sym">${esc(e.symbol)}</span> ${esc(e.name||'')}</span><span class="sv"><span class="${urg}">${esc(e.date)}</span> ${e.eps_est!=null?'EPS est: $'+Number(e.eps_est).toFixed(2):''}</span></div>`;
+      }
+    }
+  }
+
+  // Company connections
+  const ccEl=$('company-connections');
+  if(ccEl) {
+    ccEl.textContent='';
+    for(const [sym,data] of Object.entries(cc2)) {
+      const d=document.createElement('div'); d.style.cssText='margin-bottom:6px';
+      const title=document.createElement('div'); title.style.cssText='color:var(--cyan);font-weight:bold;font-size:10px'; title.textContent='IF '+sym+' DROPS:';
+      d.appendChild(title);
+      for(const impact of (data.impact_if_drops||[])) {
+        const line=document.createElement('div'); line.style.cssText='color:var(--white);padding-left:10px;font-size:10px'; line.textContent='\u2192 '+impact;
+        d.appendChild(line);
+      }
+      ccEl.appendChild(d);
+    }
+  }
+}
+
+// -- F4 FOREX --
+const FX_MAJORS={'EURUSD=X':'EUR/USD','GBPUSD=X':'GBP/USD','USDJPY=X':'USD/JPY','AUDUSD=X':'AUD/USD','USDCHF=X':'USD/CHF','USDCAD=X':'USD/CAD','NZDUSD=X':'NZD/USD'};
+const FX_MINORS={'EURGBP=X':'EUR/GBP','EURJPY=X':'EUR/JPY','GBPJPY=X':'GBP/JPY','AUDJPY=X':'AUD/JPY','EURAUD=X':'EUR/AUD'};
+const FX_EMERGING={'USDTRY=X':'USD/TRY','USDMXN=X':'USD/MXN','USDZAR=X':'USD/ZAR','USDBRL=X':'USD/BRL','USDINR=X':'USD/INR','USDRUB=X':'USD/RUB','USDCNY=X':'USD/CNY'};
+
+function renderFxGroup(tbodyId, pairs) {
+  const fx=D.forex||{};
+  let h='';
+  for(const [sym,lbl] of Object.entries(pairs)) {
+    const d=fx[sym]||{}, dec=sym.includes('JPY')?3:4, chg=d.change_pct;
+    const arrow=chg==null?M:chg>0.05?U+' UP':chg<-0.05?D2+' DN':'\u2192 FLAT';
+    const ac=chg==null?'':chg>0.05?'pos':chg<-0.05?'neg':'dim';
+    h+=`<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${fmt.p(d.price,dec)}</td><td class="tr ${cc(chg)}">${fmt.pct(chg)}</td><td class="tr dim">${fmt.p(d.day_high,dec)}</td><td class="tr dim">${fmt.p(d.day_low,dec)}</td><td class="${ac}">${arrow}</td></tr>`;
+  }
+  setHTML(tbodyId, h||'<tr><td colspan="6" class="dim">No data</td></tr>');
+}
+
+function renderForex() {
+  const fx=D.forex||{}, cs=D.currency_strength||[], carry=D.carry_trades||[], meetings=D.cb_meetings||[];
+  renderFxGroup('tb-fx-majors', FX_MAJORS);
+  renderFxGroup('tb-fx-minors', FX_MINORS);
+  renderFxGroup('tb-fx-emerging', FX_EMERGING);
+
+  const dxy=fx['DX-Y.NYB']||{};
+  setText('dxy-p', dxy.price!=null?Number(dxy.price).toFixed(3):M);
+  setText('dxy-h', dxy.day_high!=null?Number(dxy.day_high).toFixed(3):M);
+  setText('dxy-l', dxy.day_low!=null?Number(dxy.day_low).toFixed(3):M);
+  const dc=$('dxy-c'); if(dc) { if(dxy.change_pct!=null) { dc.textContent=fmt.pct(dxy.change_pct); dc.className=cc(dxy.change_pct); } else dc.textContent=M; }
+
+  const csEl=$('ccy-strength');
+  if(csEl) {
+    csEl.textContent='';
+    const maxS=Math.max(...cs.map(c=>Math.abs(c.score||0)),0.01);
+    for(const c of cs) {
+      const pct=Math.abs(c.score||0)/maxS*100;
+      const col=(c.score||0)>=0?'var(--green)':'var(--red)';
+      const row=document.createElement('div'); row.className='sbrow'; row.style.marginBottom='4px';
+      const lbl=document.createElement('span'); lbl.textContent=c.currency; lbl.style.cssText='width:34px;color:var(--cyan)';
+      const bar=document.createElement('div'); bar.className='sbbar';
+      const fill=document.createElement('div'); fill.className='sbfill'; fill.style.cssText=`width:${pct}%;background:${col}`;
+      bar.appendChild(fill);
+      const val=document.createElement('span'); val.textContent=(c.score>=0?'+':'')+c.score.toFixed(3); val.style.cssText=`width:52px;text-align:right;color:${col};font-size:10px`;
+      row.appendChild(lbl); row.appendChild(bar); row.appendChild(val);
+      csEl.appendChild(row);
+    }
+  }
+
+  let ch='';
+  for(const ct of carry) {
+    const rc=ct.risk==='EXTREME'?'br':ct.risk==='HIGH'?'by':ct.risk==='LOW'?'bg':'bd';
+    ch+=`<tr><td class="sym">${esc(ct.pair)}</td><td class="tr">${ct.long_rate.toFixed(2)}%</td><td class="tr">${ct.short_rate.toFixed(2)}%</td><td class="tr ${ct.carry>=0?'pos':'neg'}">${ct.carry>=0?'+':''}${ct.carry.toFixed(2)}%</td><td><span class="b ${rc}">${esc(ct.risk)}</span></td></tr>`;
+  }
+  setHTML('tb-carry', ch);
+
+  const cbEl=$('cb-meetings');
+  if(cbEl) {
+    cbEl.textContent='';
+    for(const m of meetings) {
+      const days = daysUntil(m.next_meeting);
+      const urgency = days!=null&&days<=7?'neg':days!=null&&days<=30?'by':'dim';
+      const row=document.createElement('div'); row.className='sr';
+      const l=document.createElement('span'); l.className='sl'; l.textContent=m.bank+' ('+m.currency+')';
+      const v=document.createElement('span'); v.className='sv';
+      v.innerHTML=`<span class="${urgency}">${days!=null?days+'d':M}</span> <span class="dim" style="font-size:10px">${esc(m.type)}</span>`;
+      row.appendChild(l); row.appendChild(v);
+      cbEl.appendChild(row);
+    }
+  }
+}
+
+// -- F5 BONDS & RATES --
+function renderBonds() {
+  const m=D.macro||{}, gy=D.global_yields||[], ff=D.fed_futures||[], be=D.bond_etfs||{};
+  renderYieldCurve('bonds-yc', 'bonds-yc-alert', m);
+
+  let gyh='';
+  for(const g of gy) {
+    const v = g.yield_10y;
+    gyh+=`<tr><td class="sym">${esc(g.country)} <span class="dim">(${esc(g.code)})</span></td><td class="tr">${v!=null?v.toFixed(2)+'%':M}</td></tr>`;
+  }
+  setHTML('tb-global-yields', gyh||'<tr><td colspan="2" class="dim">No data</td></tr>');
+
+  setText('tip-5y', (m.tip5y||{}).value!=null?Number((m.tip5y||{}).value).toFixed(2)+'%':M);
+  setText('tip-10y', (m.tip10y||{}).value!=null?Number((m.tip10y||{}).value).toFixed(2)+'%':M);
+
+  // Real yield
+  const us10y = (m.us10y||{}).value;
+  const cpi = (m.cpi||{}).value;
+  const ryEl = $('real-yield');
+  if(ryEl && us10y!=null && cpi!=null) { const ry = (us10y - 3.5).toFixed(2); ryEl.textContent = ry+'%'; ryEl.className = 'sv '+(parseFloat(ry)>0?'pos':'neg'); }
+
+  setText('spread-ig', (m.baa_spread||{}).value!=null?Number((m.baa_spread||{}).value).toFixed(2)+'%':M);
+  setText('spread-hy', (m.ice_hy||{}).value!=null?Number((m.ice_hy||{}).value).toFixed(2)+'%':M);
+
+  let ffh='';
+  for(const f of ff) ffh+=`<tr><td class="sym">${esc(f.meeting)}</td><td class="tr">${f.prob_hold}%</td><td class="tr pos">${f.prob_cut}%</td><td class="tr neg">${f.prob_hike}%</td></tr>`;
+  setHTML('tb-fed-futures', ffh);
+
+  // Bond ETFs
+  const BETF_NAMES = {'LQD':'IG Corporate','TLT':'20+ Year Treasury','SHY':'1-3 Year Treasury','IEF':'7-10 Year Treasury','HYG':'High Yield','AGG':'US Aggregate'};
+  let beh='';
+  for(const [sym,d] of Object.entries(be)) {
+    if(!d||!d.price) continue;
+    beh+=`<tr><td class="sym">${esc(sym)} <span class="dim" style="font-size:9px">${esc(BETF_NAMES[sym]||'')}</span></td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
+  }
+  setHTML('tb-bond-etfs', beh||'<tr><td colspan="3" class="dim">No data</td></tr>');
+
+  const rvEl=$('bond-equity-rv');
+  if(rvEl) {
+    if(us10y!=null) {
+      const spread = (4.5 - us10y).toFixed(2);
+      const verdict = us10y > 4.5 ? 'BONDS favored (yields attractive)' : us10y > 3.5 ? 'NEUTRAL (balanced)' : 'EQUITIES favored (low yields)';
+      const vc = us10y > 4.5 ? 'neg' : us10y > 3.5 ? '' : 'pos';
+      rvEl.innerHTML=`<div class="sr"><span class="sl">10Y Yield</span><span class="sv">${us10y.toFixed(2)}%</span></div><div class="sr"><span class="sl">Equity Risk Premium</span><span class="sv">${spread}%</span></div><div class="sr"><span class="sl">Verdict</span><span class="sv ${vc}">${verdict}</span></div>`;
+    } else { rvEl.innerHTML='<div class="dim">Waiting for yield data...</div>'; }
+  }
+}
+
+// -- F6 NEWS --
+function renderNewsItems(containerId, items, titleKey='title', showSource=true) {
+  const el=$(containerId); if(!el) return;
+  el.textContent='';
+  if(!items||!items.length) { el.textContent='No data available'; el.className='dim'; return; }
+  el.className='';
+  for(const item of items) {
+    const div=document.createElement('div');
+    const breaking = isBreaking(item.published||item.created);
+    div.className='news-item'+(breaking?' breaking':'');
+    let meta = '';
+    if(showSource && item.source) meta += esc(item.source);
+    if(item.published) { const d=new Date(item.published); meta += (meta?' \u2014 ':'')+d.toISOString().slice(0,16).replace('T',' '); }
+    if(item.created) { const d=new Date(item.created); meta += (meta?' \u2014 ':'')+d.toISOString().slice(0,16).replace('T',' '); }
+    if(item.score!=null) meta += ' \u2014 \u25b2'+item.score;
+    if(item.comments!=null) meta += ' \u2014 '+item.comments+' comments';
+    if(item.flair) meta += ' <span class="b bo">'+esc(item.flair)+'</span>';
+    const titleDiv=document.createElement('div'); titleDiv.className='news-title';
+    titleDiv.textContent=(breaking?'\ud83d\udea8 ':'')+(item[titleKey]||'');
+    div.appendChild(titleDiv);
+    if(meta) { const metaDiv=document.createElement('div'); metaDiv.className='news-meta'; metaDiv.innerHTML=meta; div.appendChild(metaDiv); }
+    el.appendChild(div);
+  }
+}
+
+function renderAiNews() {
+  const ai = D.claude_news;
+  const el = $('ai-news-full');
+  if (!el) return;
+  if (!ai) { el.innerHTML = '<div class="ai-box loading">Waiting for AI analysis...</div>'; return; }
+  if (typeof ai === 'string') { el.innerHTML = `<div class="ai-box">${esc(ai)}<div class="ai-badge">AI</div></div>`; return; }
+  if (ai.summary && !ai.market_moving) { el.innerHTML = `<div class="ai-box">${esc(ai.summary)}<div class="ai-badge">AI</div></div>`; return; }
+
+  let h = '';
+  if (ai.market_moving && ai.market_moving.length) {
+    h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div>';
+    h += '<div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">MARKET MOVING EVENTS</div>';
+    ai.market_moving.forEach((e,i) => { h += `<div style="padding:2px 0;font-size:12px">${i+1}. ${esc(e)}</div>`; });
+    if(ai.timestamp) h += `<div class="ai-ts">Updated: ${secsAgo(ai.timestamp)}</div>`;
+    h += '</div>';
+  }
+  const outlooks = [['CRYPTO',ai.crypto_outlook,'var(--orange)'],['STOCKS',ai.stocks_outlook,'var(--green)'],['FOREX',ai.forex_outlook,'var(--cyan)'],['COMMODITIES',ai.commodities_outlook,'var(--yellow)'],['BONDS',ai.bonds_outlook,'var(--white)']];
+  h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div><div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">ASSET CLASS IMPACT</div>';
+  outlooks.forEach(([label, text, col]) => { if(text) h += `<div style="padding:3px 0;border-bottom:1px solid #1a1a1a"><span style="color:${col};font-size:10px;font-weight:bold">${label}:</span> <span style="font-size:12px">${esc(text)}</span></div>`; });
+  h += '</div>';
+  if (ai.opportunities && ai.opportunities.length) {
+    h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div><div style="color:var(--green);font-size:11px;font-weight:bold;margin-bottom:4px">TRADING OPPORTUNITIES</div>';
+    ai.opportunities.forEach(o => { h += `<div style="padding:2px 0;font-size:12px;color:var(--green)">\u2022 ${esc(o)}</div>`; });
+    h += '</div>';
+  }
+  if (ai.risks && ai.risks.length) {
+    h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div><div style="color:var(--red);font-size:11px;font-weight:bold;margin-bottom:4px">RISKS TO WATCH</div>';
+    ai.risks.forEach(r => { h += `<div style="padding:2px 0;font-size:12px;color:var(--red)">\u26a0 ${esc(r)}</div>`; });
+    h += '</div>';
+  }
+  if (ai.sentiment) {
+    h += '<div class="ai-box"><div class="ai-badge">AI</div><div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">AI SENTIMENT (-100 to +100)</div>';
+    for (const [asset, score] of Object.entries(ai.sentiment)) {
+      const s = Number(score);
+      const col = s > 20 ? 'var(--green)' : s < -20 ? 'var(--red)' : 'var(--yellow)';
+      h += `<div class="sbrow" style="margin-bottom:3px"><span style="width:80px;color:var(--dim);text-transform:uppercase">${esc(asset)}</span><div class="sbbar" style="height:5px"><div class="sbfill" style="width:${Math.min(Math.abs(s),100)}%;background:${col}"></div></div><span style="width:44px;text-align:right;color:${col}">${s>0?'+':''}${s}</span></div>`;
+    }
+    h += '</div>';
+  }
+  el.innerHTML = h;
+}
+
+function renderNews() {
+  const news=D.news||{};
+  renderNewsItems('news-crypto', news.crypto_news||[], 'title', true);
+  renderNewsItems('news-macro', news.macro_news||[], 'title', true);
+  renderNewsItems('news-google', news.google_news||[], 'title', true);
+  renderNewsItems('news-wsb', news.reddit_wsb||[], 'title', false);
+  renderNewsItems('news-rbtc', news.reddit_bitcoin||[], 'title', false);
+  const tgEl=$('news-tg');
+  if(tgEl) {
+    const tg=news.telegram||[];
+    tgEl.textContent='';
+    if(!tg.length) { tgEl.textContent='No Telegram data'; tgEl.className='dim'; }
+    else { tgEl.className=''; for(const p of tg) { const div=document.createElement('div'); div.className='news-item'; div.innerHTML=`<div style="color:var(--cyan);font-size:9px">@${esc(p.channel)}</div><div class="news-title">${esc(p.text)}</div>`; tgEl.appendChild(div); } }
+  }
+  renderAiNews();
+}
+
+async function askClaudeNews() {
+  const box=$('ai-news-full'); if(!box) return;
+  box.innerHTML='<div class="ai-box loading">Analyzing news...</div>';
+  try {
+    const r=await fetch('/api/claude/news',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const data=await r.json();
+    if(data.analysis) { D.claude_news = typeof data.analysis === 'string' ? {summary: data.analysis} : data.analysis; renderAiNews(); }
+    else { box.innerHTML='<div class="ai-box">No analysis returned.<div class="ai-badge">AI</div></div>'; }
+  } catch(e) { box.innerHTML='<div class="ai-box">Error: '+esc(e.message)+'</div>'; }
+}
+
+// -- F7 GEOPOLITICAL --
+function renderGeo() {
+  const geo=D.geo||{};
+  const rs=geo.risk_score;
+  const scoreEl=$('geo-score');
+  if(scoreEl) { scoreEl.textContent=rs!=null?rs+'/100':M; scoreEl.className='risk-big '+(rs>65?'risk-high':rs>40?'risk-med':'risk-low'); }
+  const bar=$('geo-bar');
+  if(bar&&rs!=null) { bar.style.width=rs+'%'; bar.className='gfill '+(rs>65?'gf':rs>40?'gn':'gg'); }
+
+  const mi=geo.market_impact||{};
+  const ig=$('geo-impact-grid');
+  if(ig) {
+    ig.textContent='';
+    for(const [lbl,val] of [['CRYPTO',mi.crypto],['STOCKS',mi.stocks],['FOREX',mi.forex],['COMMODITIES',mi.commodities]]) {
+      const row=document.createElement('div'); row.className='sr';
+      const l=document.createElement('span'); l.className='sl'; l.textContent=lbl;
+      const v=document.createElement('span'); v.className='sv'; v.textContent=val||M;
+      v.style.color=val&&(val.includes('RISK-OFF')||val.includes('BEARISH'))?'var(--red)':val&&(val.includes('RISK-ON')||val.includes('BULLISH'))?'var(--green)':'var(--white)';
+      row.appendChild(l); row.appendChild(v); ig.appendChild(row);
+    }
+  }
+
+  const psEl=$('political-stability');
+  if(psEl) { psEl.textContent=''; for(const c of (geo.political_stability||[])) { const col=c.index>=60?'var(--green)':c.index>=40?'var(--yellow)':'var(--red)'; const row=document.createElement('div'); row.className='sr'; const l=document.createElement('span'); l.className='sl'; l.textContent=c.country; const v=document.createElement('span'); v.className='sv'; v.innerHTML=`<span style="color:${col}">${c.index}/100</span> <span class="b ${c.risk==='HIGH'?'br':c.risk==='ELEVATED'?'by':'bd'}">${esc(c.risk)}</span>`; row.appendChild(l); row.appendChild(v); psEl.appendChild(row); } }
+
+  setText('gdelt-tone', geo.gdelt_tone!=null?Number(geo.gdelt_tone).toFixed(2):M);
+  const gc=$('gdelt-countries');
+  if(gc) { const evts=geo.gdelt_events||[]; gc.textContent=''; if(!evts.length) { gc.textContent='No GDELT data'; gc.className='dim'; } else { gc.className=''; for(const ev of evts) { const row=document.createElement('div'); row.className='geo-row'; const tc=ev.tone<-2?'neg':ev.tone>2?'pos':'dim'; row.innerHTML=`<span style="color:var(--cyan)">${esc(ev.region||M)}</span> <span class="${tc}">tone: ${ev.tone!=null?Number(ev.tone).toFixed(1):M}</span> <span class="dim">articles: ${ev.count||0}</span>`; gc.appendChild(row); } } }
+
+  const ql=$('quake-list');
+  if(ql) { const qs=geo.earthquakes||[]; ql.textContent=''; if(!qs.length) { ql.textContent='No significant earthquakes in last 24h'; ql.className='dim'; } else { ql.className=''; for(const q of qs) { const row=document.createElement('div'); row.className='geo-row'; const mc=q.mag>=7?'neg':q.mag>=6?'by':'pos'; row.innerHTML=`<span class="b ${mc}">M${q.mag?.toFixed(1)??'?'}</span> <span style="color:var(--white)">${esc(q.place)}</span> <span class="dim">${esc(q.time)}</span>`; ql.appendChild(row); } } }
+
+  const cl=$('cyber-list');
+  if(cl) { const ca=geo.cyber_alerts||[]; cl.textContent=''; if(!ca.length) { cl.textContent='No KEV data'; cl.className='dim'; } else { cl.className=''; for(const c of ca) { const row=document.createElement('div'); row.className='geo-row'; row.innerHTML=`<span class="b br">${esc(c.id)}</span> ${esc(c.name)}<br><span class="dim" style="font-size:10px">${esc(c.vendor)} \u2014 ${esc(c.added)}</span>`; cl.appendChild(row); } } }
+
+  const sl=$('sanctions-list');
+  if(sl) { sl.textContent=''; for(const s of (geo.sanctions||[])) { const row=document.createElement('div'); row.className='geo-row'; row.innerHTML=`<span style="color:var(--cyan)">${esc(s.target)}</span> <span class="b ${s.severity==='MAXIMUM'?'br':'by'}">${esc(s.severity)}</span><br><span class="dim" style="font-size:10px">${esc(s.type)} \u2014 ${esc(s.imposed_by)}</span>`; sl.appendChild(row); } }
+
+  const ecEl=$('election-calendar');
+  if(ecEl) { ecEl.textContent=''; for(const e of (geo.elections_2026||[])) { const days=e.days_until; const row=document.createElement('div'); row.className='geo-row'; row.innerHTML=`${esc(e.country)} <span class="b ${e.impact==='HIGH'?'br':'by'}">${esc(e.impact)}</span><br><span class="dim" style="font-size:10px">${esc(e.type)} \u2014 ${esc(e.date)} (${days!=null?days+'d':'?'})</span>`; ecEl.appendChild(row); } }
+
+  const cgEl=$('commodity-geo');
+  if(cgEl) { cgEl.textContent=''; for(const c of (geo.commodity_geo||[])) { const row=document.createElement('div'); row.className='geo-row'; row.innerHTML=`<span style="color:var(--cyan)">${esc(c.commodity)}</span> <span class="b ${c.impact==='CRITICAL'?'br':'by'}">${esc(c.impact)}</span><br><span class="dim" style="font-size:10px">${esc(c.risk_factor)}</span>`; cgEl.appendChild(row); } }
+
+  const mm=$('geo-market-impact');
+  if(mm) { mm.textContent=''; const defs=[['CRYPTO',rs>65?'Risk-off selloff likely':'Geopolitical stability supports risk assets'],['EQUITIES',rs>65?'Flight to safety expected':'Stable macro supports upside'],['SAFE HAVENS',rs>55?'USD, JPY, CHF demand elevated':'No significant premium'],['COMMODITIES',rs>55?'Gold & oil elevated':'Normal pricing']]; for(const [asset,txt] of defs) { const row=document.createElement('div'); row.className='geo-row'; row.innerHTML=`<div style="font-size:10px;color:var(--cyan)">${asset}</div><div style="color:var(--white)">${txt}</div>`; mm.appendChild(row); } }
+
+  const ecal = geo.economic_calendar || [];
+  let ech = '';
+  for(const ev of ecal.slice(0,15)) { const ic = ev.impact==='High'?'br':'by'; ech += `<tr><td class="dim" style="font-size:10px">${esc(ev.date||'')}</td><td class="dim" style="font-size:10px">${esc(ev.time||'')}</td><td style="font-size:11px">${esc(ev.title||'')}</td><td class="sym">${esc(ev.country||'')}</td><td><span class="b ${ic}">${esc(ev.impact||'')}</span></td><td class="tr">${esc(ev.forecast||M)}</td><td class="tr dim">${esc(ev.previous||M)}</td></tr>`; }
+  setHTML('tb-econ-cal', ech || '<tr><td colspan="7" class="dim">No upcoming events</td></tr>');
+}
+
+// -- F8 SIGNALS --
+function renderSignals() {
+  const ag=D.agent||{}, geo=D.geo||{};
+  agentStat('sig-status','sig-perf',ag);
+  renderPositions('tb-pos',ag);
+  renderTrades('tb-trades',ag,false);
+
+  // Market regime
+  const rs=geo.risk_score||50, vix=(D.stocks||{})['^VIX']?.price, fg=(D.fear_greed||[])[0]?.value;
+  const regEl=$('market-regime');
+  if(regEl) {
+    let regime='NEUTRAL', cls='by';
+    if(rs>65||(vix&&vix>30)||(fg!=null&&fg<=20)) { regime='RISK-OFF'; cls='br'; }
+    else if(rs<35&&(vix==null||vix<20)&&(fg==null||fg>=50)) { regime='RISK-ON'; cls='bg'; }
+    regEl.innerHTML=`<span class="b ${cls}" style="font-size:16px;padding:4px 12px">${regime}</span>`;
+  }
+
+  const mi=geo.market_impact||{};
+  const tImpEl=$('geo-trade-impact');
+  if(tImpEl) {
+    if(rs==null) { tImpEl.textContent='Geopolitical data unavailable.'; }
+    else {
+      tImpEl.textContent='';
+      const lines=[];
+      if(rs>65) lines.push('HIGH GEO RISK ('+rs+'/100) \u2014 Reduce position sizes');
+      if(mi.crypto==='RISK-OFF') lines.push('Crypto: RISK-OFF \u2014 BTC/ETH under pressure');
+      if(mi.stocks==='BEARISH') lines.push('Equities: BEARISH \u2014 correlated alts may follow');
+      if(!lines.length) lines.push('LOW RISK ('+rs+'/100) \u2014 No material impact');
+      for(const l of lines) { const d=document.createElement('div'); d.style.cssText='padding:2px 0;border-bottom:1px solid #0d0d0d;font-size:12px'; d.textContent=l; tImpEl.appendChild(d); }
+    }
+  }
+
+  const triggers=[];
+  if(rs!=null&&rs>65) triggers.push({txt:'Geopolitical risk CRITICAL ('+rs+'/100)',cls:'neg'});
+  if(vix&&vix>30) triggers.push({txt:'VIX spike: '+vix.toFixed(1),cls:'neg'});
+  if((ag.consecutive_losses||0)>=3) triggers.push({txt:'Loss streak: '+ag.consecutive_losses,cls:'neg'});
+  if(ag.status==='PAUSED') triggers.push({txt:'Agent paused until '+ag.pause_until,cls:'by'});
+  if(fg!=null&&fg<=15) triggers.push({txt:'Extreme Fear (F&G: '+fg+')',cls:'neg'});
+  const rec=D.recession||{}; if(rec.probability>=60) triggers.push({txt:'Recession probability: '+rec.probability+'%',cls:'neg'});
+  const rList=$('risk-off-triggers');
+  if(rList) {
+    if(!triggers.length) { rList.textContent='No active risk-off triggers'; rList.className='dim'; }
+    else { rList.textContent=''; rList.className=''; for(const t of triggers) { const d=document.createElement('div'); d.style.cssText='padding:2px 0;border-bottom:1px solid #0d0d0d;font-size:11px'; d.textContent='\u26a0 '+t.txt; d.className=t.cls; rList.appendChild(d); } }
+  }
+
+  const corr=D.corr||{};
+  if(corr.assets&&corr.data) {
+    const a=corr.assets, t=$('corr-t');
+    if(t) {
+      t.textContent='';
+      const thead=document.createElement('thead'), hr=document.createElement('tr');
+      const th0=document.createElement('th'); th0.textContent=''; hr.appendChild(th0);
+      a.forEach(x=>{ const th=document.createElement('th'); th.textContent=x; hr.appendChild(th); });
+      thead.appendChild(hr); t.appendChild(thead);
+      const tbody=document.createElement('tbody');
+      corr.data.forEach((row,i)=>{
+        const tr=document.createElement('tr');
+        const th=document.createElement('th'); th.textContent=a[i]; th.style.cssText='text-align:left;color:var(--cyan)'; tr.appendChild(th);
+        row.forEach((v,j)=>{ const col=i===j?'var(--dim)':v>=0.7?'var(--green)':v<=-0.5?'var(--red)':v>=0.4?'#88ff88':v<=-0.2?'#ff8888':'var(--white)'; const td=document.createElement('td'); td.textContent=v.toFixed(2); td.style.color=col; tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+      t.appendChild(tbody);
+    }
+  }
+}
+
+// -- F9 AGENT --
+function renderAgent() {
+  const ag=D.agent||{};
+  agentStat('ag-overview', null, ag);
+  renderTrades('tb-ag-trades', ag, true);
+
+  const hist=ag.pnl_history||[];
+  const spEl=$('spark-line'), srEl=$('spark-range');
+  if(spEl) {
+    if(!hist.length) { spEl.textContent='No trade history'; }
+    else {
+      const spark = sparkline(hist);
+      spEl.textContent=spark;
+      const last=hist[hist.length-1], first=hist[0];
+      spEl.className='sparkline '+(last>=first?'spark-up':'spark-down');
+    }
+  }
+  if(srEl&&hist.length) { const mn=Math.min(...hist), mx=Math.max(...hist); srEl.textContent='Low: $'+fmt.p(mn)+'  High: $'+fmt.p(mx)+'  Current: $'+fmt.p(hist[hist.length-1]); }
+
+  // Performance stats
+  const perfEl=$('ag-perf-stats');
+  if(perfEl) {
+    const pa=ag.perf_all||{}, pc=ag.perf_crypto||{}, ps=ag.perf_stock||{}, pf=ag.perf_forex||{};
+    const perfRow=(label,s)=>`<div style="margin-bottom:10px"><div style="color:var(--cyan);font-size:11px;font-weight:bold;margin-bottom:4px">${label}</div><div class="sr"><span class="sl">Total</span><span class="sv">${s.total||0}</span></div><div class="sr"><span class="sl">Win Rate</span><span class="sv ${(s.win_rate||0)>=50?'pos':'neg'}">${s.win_rate||0}%</span></div><div class="sr"><span class="sl">W / L</span><span class="sv"><span class="pos">${s.wins||0}</span> / <span class="neg">${s.losses||0}</span></span></div><div class="sr"><span class="sl">Avg Win</span><span class="sv pos">$${fmt.p(s.avg_win||0)}</span></div><div class="sr"><span class="sl">Avg Loss</span><span class="sv neg">$${fmt.p(s.avg_loss||0)}</span></div><div class="sr"><span class="sl">Profit Factor</span><span class="sv">${s.profit_factor||0}</span></div><div class="sr"><span class="sl">Max Drawdown</span><span class="sv neg">$${fmt.p(s.max_drawdown||0)}</span></div><div class="sr"><span class="sl">Best Trade</span><span class="sv pos">$${fmt.p(s.best_trade||0)}</span></div><div class="sr"><span class="sl">Worst Trade</span><span class="sv neg">$${fmt.p(s.worst_trade||0)}</span></div></div>`;
+    let html=perfRow('ALL ASSETS',pa);
+    if(pc.total) html+=perfRow('CRYPTO',pc);
+    if(ps.total) html+=perfRow('STOCKS',ps);
+    if(pf.total) html+=perfRow('FOREX',pf);
+    perfEl.innerHTML=html;
+  }
+
+  // Multi-asset positions
+  _renderPosCards('ag-pos-crypto', ag.open_positions||{});
+  _renderPosCards('ag-pos-stock', ag.stock_positions||{});
+  _renderPosCards('ag-pos-forex', ag.forex_positions||{});
+}
+
+function _renderPosCards(elId, pos) {
+  const posEl=$(elId);
+  if(!posEl) return;
+  if(!Object.keys(pos).length) { posEl.textContent='No open positions'; posEl.className='dim'; return; }
+  posEl.textContent=''; posEl.className='';
+  for(const [pair,p] of Object.entries(pos)) {
+    const col=p.side==='long'?'var(--green)':'var(--red)';
+    const strat=p.strategy?`<span style="color:var(--magenta);font-size:10px">[${esc(p.strategy)}]</span> `:'';
+    const lev=p.leverage&&p.leverage>1?` <span style="color:var(--yellow);font-weight:bold">${p.leverage}x</span>`:'';
+    const sideLabel=esc((p.side||'').toUpperCase());
+    const card=document.createElement('div'); card.style.cssText='border:1px solid #181818;padding:8px;margin-bottom:6px';
+    let levLine='';
+    if(p.leverage&&p.leverage>1) {
+      levLine=`<div style="font-size:11px;color:var(--dim);margin-top:2px">Margin: <span style="color:var(--white)">$${p.margin!=null?Number(p.margin).toFixed(0):M}</span> &nbsp; Notional: <span style="color:var(--yellow)">$${p.size_usdt!=null?Number(p.size_usdt).toFixed(0):M}</span> &nbsp; Liq: <span class="neg">${p.liquidation_price?fmt.p(p.liquidation_price):M}</span></div>`;
+    }
+    card.innerHTML=`<div style="display:flex;justify-content:space-between"><span class="sym">${strat}${esc(pair)}</span><span style="color:${col}">${sideLabel}${lev}</span></div><div style="font-size:12px;color:var(--dim);margin-top:3px">Entry: <span class="price" style="color:var(--white)">${fmt.p(p.entry)}</span> &nbsp; SL: <span class="neg">${fmt.p(p.stop_loss)}</span> &nbsp; TP: <span class="pos">${fmt.p(p.take_profit)}</span></div>${levLine}<div style="font-size:12px;color:var(--dim)">${p.leverage&&p.leverage>1?'Margin':'Size'}: $${(p.margin||p.size_usdt)!=null?Number(p.margin||p.size_usdt).toFixed(0):M} &nbsp; Conf: <span style="color:var(--cyan)">${p.confidence??M}%</span></div>`;
+    posEl.appendChild(card);
+  }
+}
+
+async function askClaude() {
+  const box=$('ai-trades'); if(!box) return;
+  box.textContent='Analyzing trades...'; box.className='ai-box loading';
+  try {
+    const r=await fetch('/api/claude/trades',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const data=await r.json();
+    box.textContent=data.analysis||'No analysis returned.'; box.className='ai-box';
+  } catch(e) { box.textContent='Error: '+e.message; box.className='ai-box'; }
+}
+
+// -- Shared helpers --
+function agentStat(statusId, perfId, ag) {
+  const sc=ag.status==='RUNNING'?'bg':'by';
+  const mc=ag.mode==='LIVE'?'br':'bd';
+  const pause=ag.pause_until?`<div class="sr"><span class="sl">Paused Until</span><span class="sv" style="color:var(--yellow)">${esc(ag.pause_until)}</span></div>`:'';
+  const el=$(statusId);
+  if(el) el.innerHTML=`<div class="sr"><span class="sl">Status</span><span class="sv"><span class="b ${sc}">${esc(ag.status||M)}</span></span></div><div class="sr"><span class="sl">Mode</span><span class="sv"><span class="b ${mc}">${esc(ag.mode||M)}</span></span></div><div class="sr"><span class="sl">Equity</span><span class="sv price" style="font-size:14px">$${ag.equity!=null?Number(ag.equity).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):M}</span></div><div class="sr"><span class="sl">Free Balance</span><span class="sv price">$${ag.balance!=null?Number(ag.balance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):M}</span></div><div class="sr"><span class="sl">Locked Margin</span><span class="sv dim">$${ag.locked_margin!=null?Number(ag.locked_margin).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):M}</span></div><div class="sr"><span class="sl">Realized P&amp;L</span><span class="sv ${cc(ag.realized_pnl)}">${ag.realized_pnl!=null?'$'+fmt.p(ag.realized_pnl):M}</span></div><div class="sr"><span class="sl">Unrealized P&amp;L</span><span class="sv ${cc(ag.unrealized_pnl)}">${ag.unrealized_pnl!=null?'$'+fmt.p(ag.unrealized_pnl):M}</span></div><div class="sr"><span class="sl">Daily P&amp;L</span><span class="sv ${cc(ag.daily_pnl_pct)}">${ag.daily_pnl_pct!=null?fmt.pct(ag.daily_pnl_pct):M}</span></div>${pause}`;
+  const pe=$(perfId);
+  if(pe) {
+    const wr=ag.win_rate??0;
+    pe.innerHTML=`<div class="sr"><span class="sl">Total Trades</span><span class="sv">${ag.total_trades??0}</span></div><div class="sr"><span class="sl">Win Rate</span><span class="sv ${wr>=50?'pos':'neg'}">${wr}%</span></div><div class="sr"><span class="sl">Wins / Losses</span><span class="sv"><span class="pos">${ag.winning_trades??0}</span> / <span class="neg">${ag.losing_trades??0}</span></span></div><div class="sr"><span class="sl">Consec. Losses</span><span class="sv ${(ag.consecutive_losses||0)>=3?'neg':''}">${ag.consecutive_losses??0}</span></div><div class="sr"><span class="sl">Total P&amp;L</span><span class="sv ${cc(ag.pnl_total_pct)}">${ag.pnl_total_pct!=null?fmt.pct(ag.pnl_total_pct):M}</span></div>`;
+  }
+}
+
+function renderPositions(tbodyId, ag) {
+  const pos=ag.open_positions||{};
+  if(!Object.keys(pos).length) { setHTML(tbodyId,'<tr><td colspan="8" class="dim">No open positions</td></tr>'); return; }
+  let h='';
+  for(const [pair,p] of Object.entries(pos)) {
+    const sc=p.side==='long'?'pos':'neg';
+    const ts=p.opened_at?p.opened_at.slice(0,16).replace('T',' '):M;
+    h+=`<tr><td class="sym">${esc(pair)}</td><td class="${sc}">${esc((p.side||'').toUpperCase())}</td><td class="tr price">${fmt.p(p.entry)}</td><td class="tr neg">${fmt.p(p.stop_loss)}</td><td class="tr pos">${fmt.p(p.take_profit)}</td><td class="tr">$${p.size_usdt!=null?Number(p.size_usdt).toFixed(0):M}</td><td class="dim">${p.confidence!=null?p.confidence+'%':M}</td><td class="dim" style="font-size:10px">${esc(ts)}</td></tr>`;
+  }
+  setHTML(tbodyId, h);
+}
+
+function renderTrades(tbodyId, ag, showFull) {
+  const trades=ag.recent_trades||[], cols=showFull?8:6;
+  if(!trades.length) { setHTML(tbodyId,`<tr><td colspan="${cols}" class="dim">No recent trades</td></tr>`); return; }
+  let h='';
+  for(const t of trades.slice(0,30)) {
+    const action=t.action||t.type||M, ac=action==='ENTRY'?'pos':action==='CLOSE'?'neg':'neu';
+    const pnl=t.pnl_usdt, rc=t.result==='WIN'?'pos':t.result==='LOSS'?'neg':'dim';
+    const ts=(t.ts||t.timestamp||'').slice(0,16).replace('T',' ')||M;
+    const strat=t.strategy_type||'';
+    const asset=t.asset_class||'crypto';
+    const stratCol=strat==='SCALP'?'var(--magenta)':strat==='SWING'?'var(--cyan)':'var(--blue)';
+    const assetBadge=asset==='stock'?'STK':asset==='forex'?'FX':'CR';
+    if(showFull) {
+      h+=`<tr><td class="dim" style="font-size:10px">${esc(ts)}</td><td class="sym">${esc(t.pair||M)}</td><td style="font-size:10px"><span style="color:${stratCol}">${esc(strat)}</span> <span class="dim">${assetBadge}</span></td><td class="${ac}">${esc(action)}</td><td class="tr price">${fmt.p(t.entry||t.price)}</td><td class="tr price">${t.exit_price?fmt.p(t.exit_price):M}</td><td class="tr ${pnl!=null?cc(pnl):''}" style="font-weight:bold">${pnl!=null?'$'+fmt.p(pnl):M}</td><td class="${rc}" style="font-weight:bold">${esc(t.result||M)}</td></tr>`;
+    } else {
+      h+=`<tr><td class="dim" style="font-size:10px">${esc(ts)}</td><td class="sym">${esc(t.pair||M)}</td><td class="${ac}">${esc(action)}</td><td class="tr price">${fmt.p(t.price||t.entry||t.exit_price)}</td><td class="tr ${pnl!=null?cc(pnl):''}">${pnl!=null?'$'+fmt.p(pnl):M}</td><td class="${rc}">${esc(t.result||M)}</td></tr>`;
+    }
+  }
+  setHTML(tbodyId, h);
+}
+
+// -- API status --
+function renderApiStatus() {
+  const s=D.api_status||{};
+  [['crypto','d-crypto'],['macro','d-macro'],['stocks','d-stocks'],['forex','d-forex'],['funding','d-funding'],['geo','d-geo'],['news','d-news'],['defi_tvl','d-defi_tvl']].forEach(([k,id])=>{
+    const e=$(id); if(e) e.className='dot '+(s[k]==='LIVE'?'dl':'de');
+  });
+  const aiEl=$('sb-ai');
+  if(aiEl) aiEl.textContent='AI: '+(D.claude_macro||D.claude_news?'OK':M);
+}
+
+function exportCSV(panel) { window.open('/api/export/'+panel,'_blank'); }
+
+// -- Init --
+connect();
+</script>
+</body>
+</html>

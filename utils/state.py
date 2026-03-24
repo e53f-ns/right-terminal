@@ -15,6 +15,8 @@ class State:
             "paused_until": None,
             "total_trades": 0,
             "winning_trades": 0,
+            "daily_trades_today": 0,
+            "confidence_adjustment": 0,
         }
         self._data = self._load()
 
@@ -36,6 +38,8 @@ class State:
         if self._data["daily_pnl_reset_date"] != today:
             self._data["daily_pnl_pct"] = 0.0
             self._data["daily_pnl_reset_date"] = today
+            self._data["daily_trades_today"] = 0
+            self._data["confidence_adjustment"] = 0
             self.save()
 
     def __getattr__(self, key):

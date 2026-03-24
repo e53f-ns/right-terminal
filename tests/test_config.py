@@ -12,9 +12,14 @@ def test_config_loads_required_vars(monkeypatch):
     cfg = Config()
     assert cfg.paper_trading is True
     assert cfg.anthropic_api_key == "test-key"
-    assert cfg.trading_pairs == ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
-    assert cfg.min_confidence == 75
-    assert cfg.size_tier_low_pct == 3
+    assert cfg.trading_pairs == [
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
+        "ADA/USDT", "AVAX/USDT", "DOT/USDT", "LINK/USDT", "MATIC/USDT",
+        "UNI/USDT", "ATOM/USDT", "LTC/USDT", "BCH/USDT", "NEAR/USDT",
+        "APT/USDT", "ARB/USDT", "OP/USDT", "FIL/USDT", "DOGE/USDT",
+    ]
+    assert cfg.min_confidence == 72
+    assert cfg.size_tier_low_pct == 5
 
 def test_config_raises_on_missing_api_key(monkeypatch):
     monkeypatch.setenv("BYBIT_API_KEY", "bk")

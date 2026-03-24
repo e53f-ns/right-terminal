@@ -36,3 +36,19 @@ def test_get_funding_rate(mock_exchange):
         client = BybitClient(api_key="k", secret="s", testnet=False)
         rate = client.get_funding_rate("BTC/USDT")
     assert rate == 0.0001
+
+def test_to_perp_conversion():
+    assert BybitClient.to_perp("BTC/USDT") == "BTC/USDT:USDT"
+    assert BybitClient.to_perp("ETH/USDT") == "ETH/USDT:USDT"
+    assert BybitClient.to_perp("SOL/USDT") == "SOL/USDT:USDT"
+
+def test_orderbook_summary_includes_walls_and_thin_zones(mock_exchange):
+    with patch("data.bybit.ccxt.bybit", return_value=mock_exchange):
+        client = BybitClient(api_key="k", secret="s", testnet=False)
+        ob = client.get_orderbook_summary("BTC/USDT")
+    assert "top_bid_walls" in ob
+    assert "top_ask_walls" in ob
+    assert "thin_bid_zones" in ob
+    assert "thin_ask_zones" in ob
+    assert isinstance(ob["top_bid_walls"], list)
+    assert isinstance(ob["top_ask_walls"], list)
