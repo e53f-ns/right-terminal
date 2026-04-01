@@ -29,6 +29,7 @@ from utils.logger import get_logger
 from utils.state import State
 from utils.trade_logger import TradeLogger
 from utils.learning_log import LearningLog
+from utils.telegram_alerts import TelegramAlerter
 from utils import display
 
 
@@ -95,7 +96,7 @@ def auto_trigger_score(df_15m, pair, logger):
 
 # ── Time-based position stops ────────────────────────────────────────────────
 
-def check_time_stops(state, executor, bybit, trade_logger, cfg, risk_mgr, logger, learning_log=None):
+def check_time_stops(state, executor, bybit, trade_logger, cfg, risk_mgr, logger, learning_log=None, telegram=None):
     """Close positions that exceeded their time limit."""
     now = datetime.now(timezone.utc)
     for pair in list(state.open_positions.keys()):
@@ -124,7 +125,7 @@ def check_time_stops(state, executor, bybit, trade_logger, cfg, risk_mgr, logger
                     handle_close(result, pair, state, executor, risk_mgr,
                                  trade_logger, cfg, logger,
                                  positions_key="open_positions", asset_class="crypto",
-                                 learning_log=learning_log)
+                                 learning_log=learning_log, telegram=telegram)
             except Exception as e:
                 logger.error(f"Time stop close failed for {pair}: {e}")
 
@@ -204,6 +205,86 @@ def pre_filter(bybit, pair, fear_greed_value, logger):
         return False, f"Error: {e}", 0, None
 
 
+def get_kelly_multiplier(log_dir: str, n: int = 10) -> float:
+    """Kelly-light: bet 25% more when hot (>55% WR), 25% less when cold (<40%)."""
+    path = os.path.join(log_dir, "trades.jsonl")
+    if not os.path.exists(path):
+        return 1.0
+    entries = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                e = json.loads(line)
+                if e.get("action") == "CLOSE":
+                    entries.append(e.get("result", ""))
+            except Exception:
+                continue
+    recent = entries[-n:]
+    if len(recent) < 5:
+        return 1.0
+    wins = sum(1 for r in recent if r == "WIN")
+    wr = wins / len(recent)
+    if wr > 0.55:
+        return 1.25
+    elif wr < 0.40:
+        return 0.75
+    return 1.0
+
+
+def get_pair_consecutive_losses(pair: str, log_dir: str, n: int = 3) -> int:
+    """Count how many recent consecutive losses a pair has in trades.jsonl."""
+    path = os.path.join(log_dir, "trades.jsonl")
+    if not os.path.exists(path):
+        return 0
+    entries = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    e = json.loads(line)
+                    if e.get("pair") == pair and e.get("action") == "CLOSE":
+                        entries.append(e.get("result", ""))
+                except Exception:
+                    continue
+    if not entries:
+        return 0
+    consecutive = 0
+    for result in reversed(entries):
+        if result == "LOSS":
+            consecutive += 1
+        else:
+            break
+    return consecutive
+
+
+def is_pair_on_skip_list(pair: str, state) -> bool:
+    """Return True if pair is banned due to 3+ consecutive losses."""
+    skip_list = state._data.get("pair_skip_until", {})
+    skip_until_str = skip_list.get(pair)
+    if not skip_until_str:
+        return False
+    try:
+        skip_until = datetime.fromisoformat(skip_until_str)
+        return datetime.now(timezone.utc) < skip_until
+    except Exception:
+        return False
+
+
+def maybe_ban_pair(pair: str, state, cfg, logger) -> None:
+    """If pair has 3+ consecutive losses, ban it for 24h."""
+    consecutive = get_pair_consecutive_losses(pair, cfg.log_dir)
+    if consecutive >= 3:
+        ban_until = datetime.now(timezone.utc) + timedelta(hours=24)
+        skip_list = state._data.setdefault("pair_skip_until", {})
+        skip_list[pair] = ban_until.isoformat()
+        logger.warning(f"PAIR BAN: {pair} has {consecutive} consecutive losses → skipping 24h until {ban_until.strftime('%H:%M UTC')}")
+        state.save()
+
+
 def get_strategy_counts(open_positions):
     counts = {"SCALP": 0, "SWING": 0, "POSITION": 0}
     for pos in open_positions.values():
@@ -227,7 +308,7 @@ def _get_all_positions(state):
 
 def handle_close(result, pair, state, executor, risk_mgr, trade_logger,
                  cfg, logger, positions_key="open_positions",
-                 asset_class="crypto", learning_log=None):
+                 asset_class="crypto", learning_log=None, telegram=None):
     """Handle a closed position — update state, log trade, display."""
     pnl = result["pnl_usdt"]
     state.paper_balance = executor._paper_engine.balance
@@ -273,6 +354,10 @@ def handle_close(result, pair, state, executor, risk_mgr, trade_logger,
         leverage=pos_leverage,
         margin=pos_margin,
     )
+    # Check if pair now deserves a 24h ban
+    if asset_class == "crypto":
+        maybe_ban_pair(pair, state, cfg, logger)
+
     if learning_log:
         learning_log.record_trade(
             pair=pair, strategy=strategy_type,
@@ -286,6 +371,28 @@ def handle_close(result, pair, state, executor, risk_mgr, trade_logger,
             btc_trend=state._data.get("last_btc_trend", "UNKNOWN"),
             htf_bias=pos_data.get("htf_bias", "UNKNOWN"),
         )
+    if telegram:
+        initial = cfg.paper_initial_balance
+        total_pnl_pct = round((state.paper_balance - initial) / initial * 100, 2)
+        close_reason = result.get("reason", "SL/TP hit" if result["result"] == "LOSS" else "TP hit")
+        telegram.trade_closed(
+            pair=pair,
+            side=pos_data.get("side", "?"),
+            pnl_usdt=pnl,
+            pnl_pct=result["pnl_pct"],
+            close_reason=close_reason,
+            total_balance=state.paper_balance,
+            total_pnl_pct=total_pnl_pct,
+        )
+
+    # Circuit breaker Telegram alert
+    if telegram and risk_mgr.should_pause_after_loss(state.consecutive_losses):
+        resume_at = state._data.get("paused_until", "unknown")
+        telegram.circuit_breaker(
+            reason=f"{state.consecutive_losses} consecutive losses",
+            resume_at=resume_at[:16].replace("T", " ") + " UTC",
+        )
+
     display.print_position_closed(pair, pnl, result["result"])
     logger.info(f"[CLOSED] {pair} | P&L: ${pnl:+.2f} ({result['result']}) [{asset_class}]")
     state.save()
@@ -365,8 +472,14 @@ def analyze_single_pair(pair, df_15m, current_price, brain, bybit, coingecko_dat
             df_15m = bybit.get_candles(pair, timeframe="15m", limit=200)
             current_price = float(df_15m["close"].iloc[-1])
 
-        indicators = compute_indicators(df_15m)
-        smc = detect_smc(df_15m)
+        # Candle close confirmation: drop in-progress candle to avoid wick entries
+        # Indicators computed on fully closed candles only
+        if len(df_15m) > 1:
+            df_closed = df_15m.iloc[:-1].reset_index(drop=True)
+        else:
+            df_closed = df_15m
+        indicators = compute_indicators(df_closed)
+        smc = detect_smc(df_closed)
 
         # HTF confirmation per pair
         htf_bias = htf_bias_override or compute_htf_bias(bybit, pair, logger)
@@ -440,7 +553,7 @@ def analyze_single_pair(pair, df_15m, current_price, brain, bybit, coingecko_dat
 
 def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                      brain, risk_mgr, executor, state, trade_logger, logger,
-                     scenario_engine=None, learning_log=None):
+                     scenario_engine=None, learning_log=None, telegram=None):
     state.reset_daily_if_new_day()
     display.print_cycle_header(state.paper_balance, state.daily_pnl_pct, cfg.paper_trading)
     logger.info(f"CRYPTO CYCLE START — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
@@ -473,13 +586,14 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                              trade_logger, cfg, logger,
                              positions_key="open_positions",
                              asset_class="crypto",
-                             learning_log=learning_log)
+                             learning_log=learning_log,
+                             telegram=telegram)
         except Exception as e:
             logger.error(f"Exit check failed for {pair}: {e}", exc_info=True)
             display.print_error(pair, e)
 
     # Time-based stops
-    check_time_stops(state, executor, bybit, trade_logger, cfg, risk_mgr, logger, learning_log)
+    check_time_stops(state, executor, bybit, trade_logger, cfg, risk_mgr, logger, learning_log, telegram)
 
     # Orphan cleanup: close positions open >48h
     if hasattr(executor, '_paper_engine') and executor._paper_engine:
@@ -587,6 +701,10 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
     with ThreadPoolExecutor(max_workers=5) as pool:
         futures = {}
         for pair, df_15m, current_price in filtered_pairs:
+            if pair not in state.open_positions and is_pair_on_skip_list(pair, state):
+                logger.info(f"SKIP {pair} — 3-loss ban active")
+                cycle_results.append((pair, "BAN", None, "NONE"))
+                continue
             f = pool.submit(
                 analyze_single_pair,
                 pair, df_15m, current_price, brain, bybit, coingecko_data,
@@ -619,6 +737,12 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
             f"{pair} | [{strategy}] {signal.decision} {signal.confidence}/100"
         )
 
+        # SWING confidence gate — require 75%+ to enter
+        if (signal.decision != "HOLD" and strategy == "SWING"
+                and signal.confidence < 75):
+            logger.info(f"SWING BLOCK {pair}: confidence {signal.confidence} < 75 threshold")
+            signal.decision = "HOLD"
+
         trade_note = ""
         block_reason = ""
 
@@ -648,9 +772,21 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                     can_trade = True
                     block_reason = ""
             if can_trade:
+                # Daily profit target gate — only A+ setups after 2% daily gain
+                daily_pnl_pct = state._data.get("daily_pnl_pct", 0)
+                if daily_pnl_pct >= cfg.daily_profit_target_pct and signal.confidence < 85:
+                    block_reason = f"daily target hit ({daily_pnl_pct:.1f}%) — A+ only (need 85+)"
+                    can_trade = False
+
+            if can_trade:
                 margin = risk_mgr.calculate_position_size(
                     state.paper_balance, signal.confidence, strategy,
                     partial=is_partial)
+                # Kelly-light: scale size based on rolling 10-trade win rate
+                kelly = get_kelly_multiplier(cfg.log_dir)
+                margin = round(margin * kelly, 2)
+                if kelly != 1.0:
+                    logger.info(f"Kelly {kelly}x → margin ${margin:.2f} (rolling WR)")
                 leverage = compute_leverage(signal.confidence, strategy) if cfg.futures_enabled else 1
                 result = executor.execute(signal=signal, size_usdt=margin,
                                           leverage=leverage, strategy=strategy)
@@ -677,6 +813,18 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                     trade_logger.log_entry(signal=signal, size_usdt=notional,
                                            asset_class="crypto",
                                            leverage=leverage, margin=margin)
+                    if telegram:
+                        telegram.trade_opened(
+                            pair=pair,
+                            side="long" if signal.decision == "BUY" else "short",
+                            entry=signal.entry,
+                            sl=signal.stop_loss,
+                            tp=signal.take_profit,
+                            leverage=leverage,
+                            confidence=signal.confidence,
+                            strategy=strategy,
+                            balance=state.paper_balance,
+                        )
                     lev_str = f" {leverage}x" if leverage > 1 else ""
                     trade_note = (
                         f"PAPER {strategy}{lev_str}{partial_tag} "
@@ -761,7 +909,8 @@ def run_stock_cycle(cfg, stock_client, brain, risk_mgr, executor,
                 handle_close(result, sym, state, executor, risk_mgr,
                              trade_logger, cfg, logger,
                              positions_key="stock_positions",
-                             asset_class="stock")
+                             asset_class="stock",
+                             telegram=telegram)
         except Exception as e:
             logger.warning(f"Stock exit check failed {sym}: {e}")
 
@@ -813,6 +962,10 @@ def run_stock_cycle(cfg, stock_client, brain, risk_mgr, executor,
                 if can_trade:
                     margin = risk_mgr.calculate_position_size(
                         state.paper_balance, signal.confidence, strategy)
+                    # Reduce size 50% for underperforming stock symbols
+                    if sym in ("TSLA", "NVDA"):
+                        margin *= 0.5
+                        logger.info(f"{sym}: reduced position size 50% (loss pattern)")
                     leverage = compute_leverage(signal.confidence, strategy) if cfg.futures_enabled else 1
                     result = executor.execute(signal=signal, size_usdt=margin,
                                               leverage=leverage, strategy=strategy)
@@ -880,7 +1033,8 @@ def run_forex_cycle(cfg, forex_client, brain, risk_mgr, executor,
                 handle_close(result, pair_key, state, executor, risk_mgr,
                              trade_logger, cfg, logger,
                              positions_key="forex_positions",
-                             asset_class="forex")
+                             asset_class="forex",
+                             telegram=telegram)
         except Exception as e:
             logger.warning(f"Forex exit check failed {pair_key}: {e}")
 
@@ -1052,6 +1206,7 @@ def main():
     state = State(path="state.json", initial_balance=cfg.paper_initial_balance)
     trade_logger = TradeLogger(log_dir=cfg.log_dir)
     learning_log = LearningLog(log_dir=cfg.log_dir)
+    telegram = TelegramAlerter(cfg.telegram_bot_token, cfg.telegram_chat_id)
 
     state._data.setdefault("stock_positions", {})
     state._data.setdefault("forex_positions", {})
@@ -1104,7 +1259,7 @@ def main():
 
     crypto_args = (cfg, bybit, coingecko, cryptopanic, coinglass,
                    brain, risk_mgr, executor, state, trade_logger, logger,
-                   scenario_engine, learning_log)
+                   scenario_engine, learning_log, telegram)
     stock_args = (cfg, stock_client, brain, risk_mgr, executor,
                   state, trade_logger, logger)
     forex_args = (cfg, forex_client, brain, risk_mgr, executor,
@@ -1114,6 +1269,13 @@ def main():
     run_crypto_cycle(*crypto_args)
     run_stock_cycle(*stock_args)
     run_forex_cycle(*forex_args)
+
+    # Start Telegram command listener
+    telegram.start_command_listener(state, logger)
+
+    mode = "PAPER" if cfg.paper_trading else "LIVE"
+    telegram.agent_started(mode=mode, balance=state.paper_balance,
+                           pairs=len(cfg.trading_pairs))
 
     # Check weekly backtest on startup
     maybe_run_weekly_backtest(cfg, bybit, logger, state)
@@ -1148,14 +1310,29 @@ def main():
                 logger.error(f"Forex cycle error: {e}", exc_info=True)
             last_forex = time.time()
 
-        # End-of-day performance log
-        hour_utc = datetime.now(timezone.utc).hour
-        if hour_utc == 23 and datetime.now(timezone.utc).minute < 1:
+        # End-of-day performance log + Telegram daily summary
+        now_utc = datetime.now(timezone.utc)
+        hour_utc = now_utc.hour
+        if hour_utc == 23 and now_utc.minute < 1:
             daily_trades = state._data.get("daily_trades_today", 0)
             logger.info(
                 f"EOD REPORT: trades={daily_trades}/{cfg.daily_trade_target} | "
                 f"P&L={state.daily_pnl_pct:.3f}% (target {cfg.daily_profit_target_pct}%)"
             )
+            if telegram:
+                wins = state.winning_trades
+                total = state.total_trades
+                losses_total = total - wins
+                initial = cfg.paper_initial_balance
+                pnl_usdt = round(state.paper_balance - initial, 2)
+                telegram.daily_summary(
+                    trades=daily_trades,
+                    wins=wins,
+                    losses=losses_total,
+                    pnl_usdt=pnl_usdt,
+                    pnl_pct=state.daily_pnl_pct,
+                    balance=state.paper_balance,
+                )
 
         time.sleep(10)
 

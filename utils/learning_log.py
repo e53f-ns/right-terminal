@@ -27,6 +27,11 @@ class LearningLog:
             side=side, result=result, confidence=confidence,
             opened_at=opened_at, btc_trend=btc_trend, htf_bias=htf_bias,
         )
+        what_went_right = self._detect_wins(
+            side=side, result=result, confidence=confidence,
+            opened_at=opened_at, btc_trend=btc_trend, htf_bias=htf_bias,
+            pnl_pct=pnl_pct,
+        )
         record = {
             "pair": pair,
             "strategy": strategy,
@@ -42,6 +47,7 @@ class LearningLog:
             "btc_trend": btc_trend,
             "htf_bias": htf_bias,
             "mistakes": mistakes,
+            "what_went_right": what_went_right,
             "ts": datetime.now(timezone.utc).isoformat(),
         }
         with open(self._path, "a") as f:
@@ -88,6 +94,15 @@ class LearningLog:
             if count >= 2:
                 parts.append(f"{pair} lost {count}x")
 
+        # Winning patterns
+        win_tags = Counter()
+        for e in wins:
+            for t in e.get("what_went_right", []):
+                win_tags[t] += 1
+        if win_tags:
+            top = win_tags.most_common(3)
+            parts.append("WINS:" + ",".join(f"{t}:{c}" for t, c in top))
+
         return " | ".join(parts)
 
     def get_top_mistakes(self, n: int = 3) -> list[dict]:
@@ -106,6 +121,36 @@ class LearningLog:
         sorted_mistakes = sorted(mistake_details.items(),
                                  key=lambda x: x[1]["count"], reverse=True)
         return [{"mistake": k, **v} for k, v in sorted_mistakes[:n]]
+
+    def _detect_wins(self, *, side: str, result: str, confidence: int,
+                     opened_at: str, btc_trend: str, htf_bias: str,
+                     pnl_pct: float) -> list[str]:
+        """Tag winning trades with what went right to build pattern library."""
+        if result != "WIN":
+            return []
+        tags = []
+        # Trend aligned
+        if side == "BUY" and btc_trend in ("BULL", "NEUTRAL"):
+            tags.append("trend_aligned")
+        elif side == "SELL" and btc_trend in ("BEAR", "NEUTRAL"):
+            tags.append("trend_aligned")
+        # HTF confirms direction
+        if (side == "BUY" and htf_bias == "BULL") or (side == "SELL" and htf_bias == "BEAR"):
+            tags.append("htf_confirmed")
+        # High conviction entry
+        if confidence >= 80:
+            tags.append("high_conviction")
+        # London/NY session (8-17 UTC) — best liquidity
+        try:
+            hour = datetime.fromisoformat(opened_at).hour
+            if 8 <= hour <= 17:
+                tags.append("good_session")
+        except (ValueError, TypeError):
+            pass
+        # Strong move captured
+        if pnl_pct >= 1.5:
+            tags.append("strong_move")
+        return tags
 
     def _detect_mistakes(self, *, side: str, result: str, confidence: int,
                          opened_at: str, btc_trend: str,

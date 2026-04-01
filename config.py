@@ -57,6 +57,10 @@ class Config:
         self.daily_trade_target = int(os.getenv("DAILY_TRADE_TARGET", "5"))
         self.daily_profit_target_pct = float(os.getenv("DAILY_PROFIT_TARGET_PCT", "2"))
 
+        # Telegram alerts (optional — disabled if not set)
+        self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        self.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.log_to_file = os.getenv("LOG_TO_FILE", "true").lower() == "true"
         self.log_dir = os.getenv("LOG_DIR", "logs")

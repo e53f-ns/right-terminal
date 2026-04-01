@@ -31,11 +31,11 @@ def make_cfg():
 
 def test_scalp_position_sizing_capped_at_3pct():
     rm = RiskManager(make_cfg())
-    # All tiers capped at 3%
-    assert rm.calculate_position_size(10000, 62, "SCALP") == 300.0
-    assert rm.calculate_position_size(10000, 72, "SCALP") == 300.0
-    assert rm.calculate_position_size(10000, 82, "SCALP") == 300.0
-    assert rm.calculate_position_size(10000, 92, "SCALP") == 300.0
+    # SCALP gets 1.2x bonus: 3% * 1.2 = 3.6%
+    assert rm.calculate_position_size(10000, 62, "SCALP") == 360.0
+    assert rm.calculate_position_size(10000, 72, "SCALP") == 360.0
+    assert rm.calculate_position_size(10000, 82, "SCALP") == 360.0
+    assert rm.calculate_position_size(10000, 92, "SCALP") == 360.0
 
 
 def test_partial_position_sizing():

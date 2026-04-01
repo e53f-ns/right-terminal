@@ -22,8 +22,10 @@ SIZING = {
     },
 }
 
-# Max 3% per trade while win rate is low
-MAX_SIZE_PCT = 3.0
+# SCALP gets +20% size bonus — best performing strategy
+SCALP_SIZE_BONUS = 1.2
+# Max 3.6% per trade (3% * 1.2 SCALP bonus; SWING/POSITION disabled anyway)
+MAX_SIZE_PCT = 3.6
 
 # Partial position: below strategy min but above partial threshold → half size
 PARTIAL_THRESHOLD_OFFSET = 10  # e.g. SCALP min 60, partial at 50
@@ -45,6 +47,9 @@ class RiskManager:
                 break
         pct = min(pct, MAX_SIZE_PCT)
         size = round(balance * pct / 100, 2)
+        # Apply SCALP bonus after base calculation
+        if strategy == "SCALP":
+            size = round(size * SCALP_SIZE_BONUS, 2)
         if partial:
             size = round(size * 0.5, 2)
         return size
