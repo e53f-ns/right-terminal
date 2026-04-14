@@ -20,9 +20,9 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # ── Entry filters ─────────────────────────────────────────────────────────────
-ENTRY_THRESHOLD = 0.92   # buy below this price
-EXIT_THRESHOLD = 0.97    # take profit above this
-STOP_LOSS = 0.88         # stop loss below this
+ENTRY_THRESHOLD = 0.60   # buy below this price (paper testing)
+EXIT_THRESHOLD = 0.65    # take profit above this
+STOP_LOSS = 0.40         # stop loss below this
 MAX_SPREAD = 0.50        # skip if spread > 50¢ (no real market yet)
 MIN_TIME_LEFT = 10       # skip if < 10s to close
 

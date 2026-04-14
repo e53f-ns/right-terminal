@@ -1328,9 +1328,9 @@ def fetch_polymarket() -> dict:
         "history": history,
         "status": status,
         "config": {
-            "entry_threshold": float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.92")),
-            "exit_threshold": float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.97")),
-            "stop_loss": float(os.getenv("POLYMARKET_STOP_LOSS", "0.88")),
+            "entry_threshold": float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.60")),
+            "exit_threshold": float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.65")),
+            "stop_loss": float(os.getenv("POLYMARKET_STOP_LOSS", "0.40")),
             "scan_interval": int(os.getenv("POLYMARKET_SCAN_INTERVAL", "5")),
         },
     }

@@ -30,9 +30,9 @@ BYBIT_SECRET = os.getenv("BYBIT_SECRET", "")
 PAPER = os.getenv("POLYMARKET_PAPER", "true").lower() == "true"
 INITIAL_BALANCE = float(os.getenv("POLYMARKET_INITIAL_BALANCE", "100"))
 SCAN_INTERVAL = int(os.getenv("POLYMARKET_SCAN_INTERVAL", "5"))
-ENTRY_THRESHOLD = float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.92"))
-EXIT_THRESHOLD = float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.97"))
-STOP_LOSS = float(os.getenv("POLYMARKET_STOP_LOSS", "0.88"))
+ENTRY_THRESHOLD = float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.60"))
+EXIT_THRESHOLD = float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.65"))
+STOP_LOSS = float(os.getenv("POLYMARKET_STOP_LOSS", "0.40"))
 
 logging.basicConfig(
     level=logging.INFO,
