@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import re
+import subprocess
 import time
 import threading
 from datetime import datetime, timezone
@@ -55,6 +56,8 @@ VERSION      = "3.5"
 REFRESH_SEC  = 30
 STATE_FILE   = "state.json"
 TRADE_GLOB   = "logs/trades*.jsonl"
+AV_KEY       = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+CRUCIX_URL   = os.getenv("CRUCIX_URL", "http://localhost:3117/api/data")
 
 # BTC Halving
 HALVING_TARGET = datetime(2028, 4, 15, tzinfo=timezone.utc)
@@ -390,6 +393,42 @@ def fetch_yf(symbols: list, fundamentals_for: list = None) -> dict:
             result[sym] = entry
         except Exception:
             result[sym] = {"price": None, "change_pct": 0}
+
+    # Alpha Vantage fallback for symbols where yfinance returned no price
+    # Only for plain US stocks/ETFs (skip forex =X, futures =F, MOEX .ME)
+    if AV_KEY and AV_KEY not in ("your_key_here", ""):
+        failed = [
+            s for s in symbols
+            if not result.get(s, {}).get("price")
+            and "=X" not in s and "=F" not in s and ".ME" not in s
+        ]
+        for sym in failed[:10]:  # cap at 10 to stay within free-tier rate limit
+            try:
+                r = requests.get(
+                    "https://www.alphavantage.co/query",
+                    params={"function": "GLOBAL_QUOTE", "symbol": sym, "apikey": AV_KEY},
+                    timeout=10,
+                )
+                q = r.json().get("Global Quote", {})
+                if q.get("05. price"):
+                    av_price = float(q["05. price"])
+                    av_prev  = float(q["08. previous close"]) if q.get("08. previous close") else None
+                    av_chg   = float(q.get("10. change percent", "0%").replace("%", ""))
+                    result[sym] = {
+                        "price":               clean(av_price),
+                        "prev_close":          clean(av_prev),
+                        "day_high":            clean(float(q["03. high"])) if q.get("03. high") else None,
+                        "day_low":             clean(float(q["04. low"])) if q.get("04. low") else None,
+                        "change_pct":          clean(av_chg),
+                        "market_cap":          None,
+                        "fifty_two_week_high": None,
+                        "fifty_two_week_low":  None,
+                        "_source":             "alpha_vantage",
+                    }
+                    logger.info("AV fallback %s OK  price=%s", sym, av_price)
+            except Exception as e:
+                logger.warning("AV fallback %s ERR %s", sym, e)
+
     return result
 
 
@@ -1147,6 +1186,156 @@ def read_agent_data() -> dict:
     }
 
 
+# ── Crucix local API ─────────────────────────────────────────────────────────
+
+def fetch_crucix() -> dict:
+    """Fetch intelligence data from Crucix local API (http://localhost:3117/api/data)."""
+    try:
+        r = requests.get(CRUCIX_URL, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+
+        # Extract delta signals (newly detected since last poll)
+        delta = data.get("delta", {})
+        new_signals = delta.get("signals", {}).get("new", [])
+
+        # Urgent OSINT posts
+        tg = data.get("tg", {})
+        urgent_posts = tg.get("urgent", [])[:10]
+
+        # Commodities
+        energy = data.get("energy", {})
+        metals = data.get("metals", {})
+
+        # Markets
+        markets = data.get("markets", {})
+        indexes = markets.get("indexes", {})
+        crypto = markets.get("crypto", {})
+        vix = markets.get("vix")
+
+        # Supply chain
+        gscpi = data.get("gscpi", {})
+
+        # Geopolitical
+        nuke = data.get("nuke", [])
+        chokepoints = data.get("chokepoints", [])
+        defense = data.get("defense", {})
+
+        # Urgent news
+        news_feed = data.get("newsFeed", [])
+        urgent_news = [n for n in news_feed if n.get("urgent") or n.get("priority") == "high"][:5]
+
+        return {
+            "connected": True,
+            "new_signals": new_signals[:10],
+            "urgent_posts": urgent_posts,
+            "energy": {
+                "wti": energy.get("wti"),
+                "brent": energy.get("brent"),
+                "natgas": energy.get("natgas"),
+            },
+            "metals": {
+                "gold": metals.get("gold"),
+                "gold_change_pct": metals.get("goldChangePct"),
+                "silver": metals.get("silver"),
+                "silver_change_pct": metals.get("silverChangePct"),
+            },
+            "markets": {
+                "indexes": indexes,
+                "crypto": crypto,
+                "vix": vix,
+            },
+            "gscpi": gscpi,
+            "nuke_anomalies": [n for n in nuke if n.get("anomaly")][:5],
+            "chokepoints": chokepoints[:9],
+            "urgent_news": urgent_news,
+        }
+    except requests.exceptions.ConnectionError:
+        return {"connected": False, "error": "Crucix offline (localhost:3117)"}
+    except Exception as e:
+        return {"connected": False, "error": str(e)[:80]}
+
+
+# ── Polymarket BTC 5-min data ────────────────────────────────────────────────
+
+_poly_executor_state = {"loaded": False, "executor": None}
+
+def _get_poly_executor():
+    """Lazy-load PolymarketExecutor to read positions/history."""
+    if not _poly_executor_state["loaded"]:
+        try:
+            from polymarket.executor import PolymarketExecutor
+            _poly_executor_state["executor"] = PolymarketExecutor(
+                initial_balance=float(os.getenv("POLYMARKET_INITIAL_BALANCE", "100")),
+                paper=True,
+            )
+        except Exception as e:
+            logger.warning("Polymarket executor init failed: %s", e)
+        _poly_executor_state["loaded"] = True
+    return _poly_executor_state["executor"]
+
+
+def fetch_polymarket() -> dict:
+    """Fetch live Polymarket BTC 5-min market data + executor state."""
+    try:
+        from polymarket.fetcher import PolymarketFetcher
+    except ImportError:
+        return {"error": "polymarket module not installed"}
+
+    fetcher = PolymarketFetcher()
+    markets = fetcher.fetch_markets(count=2)
+
+    # Enrich with orderbook data
+    for m in markets:
+        m["orderbook"] = {}
+        for side, token_info in m.get("tokens", {}).items():
+            m["orderbook"][side] = fetcher.get_orderbook(token_info["token_id"])
+        m["time_left"] = max(0, (m.get("close_ts", 0)) - int(time.time()))
+
+    # Read executor state (positions, history, balance)
+    executor = _get_poly_executor()
+    positions = []
+    history = []
+    status = {}
+    if executor:
+        # Reload from disk to get latest state from runner
+        executor._load()
+        positions = [
+            {
+                "slug": p.slug, "side": p.side,
+                "entry_price": p.entry_price,
+                "target_price": p.target_price,
+                "stop_price": p.stop_price,
+                "stake": p.stake,
+            }
+            for p in executor.positions.values()
+        ]
+        history = [
+            {
+                "slug": r.slug, "side": r.side,
+                "entry_price": r.entry_price,
+                "exit_price": r.exit_price,
+                "pnl": r.pnl, "result": r.result,
+                "closed_at": r.closed_at,
+            }
+            for r in executor.history
+        ]
+        status = executor.status()
+
+    return {
+        "markets": markets,
+        "positions": positions,
+        "history": history,
+        "status": status,
+        "config": {
+            "entry_threshold": float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.92")),
+            "exit_threshold": float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.97")),
+            "stop_loss": float(os.getenv("POLYMARKET_STOP_LOSS", "0.88")),
+            "scan_interval": int(os.getenv("POLYMARKET_SCAN_INTERVAL", "5")),
+        },
+    }
+
+
 # ── Parallel fetch orchestrator ───────────────────────────────────────────────
 
 def _run(key: str, fn, results: dict, statuses: dict) -> None:
@@ -1198,6 +1387,8 @@ def fetch_all() -> dict:
         ("geo",        fetch_geo),
         ("news",       fetch_news),
         ("defi_tvl",   fetch_defi_tvl),
+        ("crucix",     fetch_crucix),
+        ("polymarket", fetch_polymarket),
     ]
     threads = [
         threading.Thread(target=_run, args=(k, fn, results, statuses), daemon=True)
@@ -1432,6 +1623,84 @@ async def claude_news_endpoint():
     news = data.get("news") or {}
     result = claude_news_analysis(news, data)
     return JSONResponse({"analysis": result or "AI analysis unavailable."})
+
+
+@app.post("/api/telegram/report")
+async def telegram_report():
+    """Send current agent status report to Telegram."""
+    token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return JSONResponse({"ok": False, "error": "Telegram credentials not configured"})
+    agent   = cache.get().get("agent") or read_agent_data()
+    balance = agent.get("balance", 0)
+    equity  = agent.get("equity", 0)
+    wr      = agent.get("win_rate", 0)
+    total   = agent.get("total_trades", 0)
+    wins    = agent.get("winning_trades", 0)
+    daily   = agent.get("daily_pnl_pct", 0)
+    status  = agent.get("status", "UNKNOWN")
+    mode    = agent.get("mode", "PAPER")
+    pnl_tot = agent.get("pnl_total_pct", 0)
+    positions = {**agent.get("open_positions", {}),
+                 **agent.get("stock_positions", {}),
+                 **agent.get("forex_positions", {})}
+    pos_lines = "\n".join(
+        f"  {pair} {p.get('side','').upper()} @${p.get('entry',0):,.2f} {p.get('leverage',1)}x"
+        for pair, p in list(positions.items())[:5]
+    ) or "  No open positions"
+    msg = (
+        f"📊 DASHBOARD REPORT\n"
+        f"Status: {status} | Mode: {mode}\n"
+        f"Balance: ${balance:,.2f} | Equity: ${equity:,.2f}\n"
+        f"Daily P&L: {daily:+.2f}% | Total P&L: {pnl_tot:+.2f}%\n"
+        f"Trades: {total} | W:{wins} | WR:{wr}%\n"
+        f"\nPositions:\n{pos_lines}"
+    )
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": msg},
+            timeout=10,
+        )
+        return JSONResponse({"ok": r.ok, "status": r.status_code})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/backtest/result")
+async def backtest_result():
+    """Return the most recent backtest results from logs/."""
+    files = sorted(glob.glob("logs/backtest_*.json"), reverse=True)
+    if not files:
+        return JSONResponse({"ok": False, "error": "No backtest results found"})
+    try:
+        with open(files[0]) as f:
+            data = json.load(f)
+        fname    = os.path.basename(files[0])
+        date_str = fname.replace("backtest_", "").replace(".json", "")
+        return JSONResponse({"ok": True, "date": date_str, "result": data})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.post("/api/backtest/run")
+async def backtest_run():
+    """Trigger backtest.py as a background subprocess."""
+    cwd = os.path.dirname(os.path.abspath(__file__)) or "."
+    python = os.path.join(cwd, ".venv", "bin", "python")
+    if not os.path.exists(python):
+        python = "python3"
+    try:
+        proc = subprocess.Popen(
+            [python, "backtest.py", "--days", "30"],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        return JSONResponse({"ok": True, "pid": proc.pid})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 @app.websocket("/ws")

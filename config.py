@@ -9,6 +9,9 @@ class Config:
         self.bybit_api_key = self._get("BYBIT_API_KEY")
         self.bybit_secret = self._get("BYBIT_SECRET")
         self.cryptopanic_api_key = self._get("CRYPTOPANIC_API_KEY")
+        self.okx_api_key = os.getenv("OKX_API_KEY", "")
+        self.okx_secret = os.getenv("OKX_SECRET", "")
+        self.okx_passphrase = os.getenv("OKX_PASSPHRASE", "")
 
         self.paper_trading = os.getenv("PAPER_TRADING", "true").lower() == "true"
         self.bybit_testnet = os.getenv("BYBIT_TESTNET", "false").lower() == "true"
@@ -56,6 +59,17 @@ class Config:
         # Performance targets
         self.daily_trade_target = int(os.getenv("DAILY_TRADE_TARGET", "5"))
         self.daily_profit_target_pct = float(os.getenv("DAILY_PROFIT_TARGET_PCT", "2"))
+
+        # Polymarket BTC 5-min bot
+        self.polymarket_paper = os.getenv("POLYMARKET_PAPER", "true").lower() == "true"
+        self.polymarket_initial_balance = float(os.getenv("POLYMARKET_INITIAL_BALANCE", "100"))
+        self.polymarket_scan_interval = int(os.getenv("POLYMARKET_SCAN_INTERVAL", "5"))
+        self.polymarket_entry_threshold = float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.92"))
+        self.polymarket_exit_threshold = float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.97"))
+        self.polymarket_stop_loss = float(os.getenv("POLYMARKET_STOP_LOSS", "0.88"))
+        self.polymarket_max_stake = float(os.getenv("POLYMARKET_MAX_STAKE", "10"))
+        self.polymarket_max_positions = int(os.getenv("POLYMARKET_MAX_POSITIONS", "3"))
+        self.polymarket_private_key = os.getenv("POLYMARKET_PRIVATE_KEY", "")
 
         # Telegram alerts (optional — disabled if not set)
         self.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")

@@ -10,3 +10,5 @@ blessed>=1.20.0
 yfinance>=0.2.40
 pytest==8.3.4
 pytest-mock==3.14.0
+py-clob-client>=0.34.5
+websockets>=12.0
