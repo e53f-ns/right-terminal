@@ -136,11 +136,16 @@ def main():
             ttl = m.get("time_left", 0)
             for side in ["up", "down"]:
                 ob = m.get("orderbook", {}).get(side, {})
+                gamma_p = m.get("tokens", {}).get(side, {}).get("gamma_price", 0)
+                clob_ask = ob.get("best_ask", 0)
+                clob_bid = ob.get("best_bid", 0)
+                spread = ob.get("spread", 0)
+                # Show both Gamma implied price and CLOB orderbook
+                liquid = "LIQUID" if spread < 0.50 else "THIN"
                 logger.info(
-                    "  %s %s | bid=%.3f ask=%.3f spread=%.3f | ttl=%ds",
+                    "  %s %s | gamma=%.3f clob_bid=%.3f clob_ask=%.3f sprd=%.2f | %s | ttl=%ds",
                     m["slug"][-10:], side.upper(),
-                    ob.get("best_bid", 0), ob.get("best_ask", 0),
-                    ob.get("spread", 0), ttl,
+                    gamma_p, clob_bid, clob_ask, spread, liquid, ttl,
                 )
 
         # ── 6. Screen for entries ─────────────────────────────────────────────

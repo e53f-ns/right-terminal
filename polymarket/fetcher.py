@@ -126,17 +126,22 @@ class PolymarketFetcher:
         for m in markets:
             outcomes = m.get("outcomes", [])
             token_ids = m.get("clobTokenIds", [])
+            outcome_prices = m.get("outcomePrices", [])
             if isinstance(outcomes, str):
                 outcomes = json.loads(outcomes)
             if isinstance(token_ids, str):
                 token_ids = json.loads(token_ids)
+            if isinstance(outcome_prices, str):
+                outcome_prices = json.loads(outcome_prices)
 
             for i, outcome in enumerate(outcomes):
                 side = outcome.lower()
                 if side in ("up", "down") and i < len(token_ids):
+                    gamma_price = float(outcome_prices[i]) if i < len(outcome_prices) else 0.0
                     result["tokens"][side] = {
                         "token_id": token_ids[i],
                         "condition_id": m.get("conditionId"),
+                        "gamma_price": gamma_price,  # Gamma API implied price
                     }
 
         return result if result["tokens"] else None

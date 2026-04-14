@@ -6,6 +6,12 @@ Strategy: buy undervalued Up/Down contracts when BTC momentum aligns.
   - Buy Down when ask <= entry_threshold AND BTC moving down
   - Target: sell at exit_threshold (~0.97)
   - Stop: sell at stop_loss (~0.88)
+
+Note on BTC 5-min market liquidity:
+  - Markets open with bid=0.01/ask=0.99 (no real pricing)
+  - Proper orderbooks only form when market makers are active
+  - Real prices converge in the last ~60-120s before close
+  - Spread > 0.50 means the market hasn't priced in yet — skip
 """
 import logging
 from dataclasses import dataclass
@@ -17,8 +23,8 @@ logger = logging.getLogger(__name__)
 ENTRY_THRESHOLD = 0.92   # buy below this price
 EXIT_THRESHOLD = 0.97    # take profit above this
 STOP_LOSS = 0.88         # stop loss below this
-MAX_SPREAD = 0.10        # skip if spread > 10¢
-MIN_TIME_LEFT = 30       # skip if < 30s to close
+MAX_SPREAD = 0.50        # skip if spread > 50¢ (no real market yet)
+MIN_TIME_LEFT = 10       # skip if < 10s to close
 
 
 @dataclass
@@ -65,14 +71,23 @@ def screen(markets: list, btc_price: float, btc_momentum: float,
                 continue
 
             ob = m.get("orderbook", {}).get(side, {})
-            ask = ob.get("best_ask", 0)
-            bid = ob.get("best_bid", 0)
+            clob_ask = ob.get("best_ask", 0)
+            clob_bid = ob.get("best_bid", 0)
             spread = ob.get("spread", 1)
+            gamma_price = token_info.get("gamma_price", 0)
 
-            if ask == 0 or bid == 0:
+            # Use CLOB prices if orderbook is liquid, else use Gamma implied price
+            if spread <= MAX_SPREAD and clob_ask > 0 and clob_bid > 0:
+                ask = clob_ask
+                bid = clob_bid
+            elif gamma_price > 0:
+                # Gamma price is the implied probability — use as mid
+                ask = gamma_price
+                bid = gamma_price
+                spread = 0.0  # no real spread info from Gamma
+            else:
                 continue
-            if spread > MAX_SPREAD:
-                continue
+
             if ask > entry_threshold:
                 continue
 
