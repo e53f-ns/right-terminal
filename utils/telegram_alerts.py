@@ -17,6 +17,8 @@ from typing import Optional
 
 import requests
 
+_ERROR_LOG_INTERVAL = 3600  # log Telegram errors at most once per hour
+
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.telegram.org/bot{token}/{method}"
@@ -34,6 +36,8 @@ class TelegramAlerter:
         self._last_update_id = 0
         self._stop_polling = threading.Event()
         self._poll_thread: Optional[threading.Thread] = None
+        self._unavailable_logged = False  # log "unavailable" only once
+        self._last_error_log: float = 0.0  # timestamp of last error log
         # These are injected by start_command_listener
         self._state = None
         self._agent_logger = None
@@ -98,6 +102,21 @@ class TelegramAlerter:
         )
         self.send(msg)
 
+    def _disable_silently(self, reason: str) -> None:
+        """Disable Telegram and log exactly once."""
+        self._enabled = False
+        self._stop_polling.set()
+        if not self._unavailable_logged:
+            self._unavailable_logged = True
+            logger.info(f"Telegram unavailable, notifications disabled ({reason})")
+
+    def _maybe_log_warning(self, msg: str) -> None:
+        """Log a warning at most once per hour to avoid log spam."""
+        now = time.monotonic()
+        if now - self._last_error_log >= _ERROR_LOG_INTERVAL:
+            self._last_error_log = now
+            logger.warning(msg)
+
     def send(self, text: str) -> bool:
         """Send a message. Returns True on success, False on failure."""
         if not self._enabled:
@@ -110,11 +129,17 @@ class TelegramAlerter:
                 "parse_mode": "HTML",
             }, timeout=10)
             if not resp.ok:
-                logger.warning(f"Telegram send failed: {resp.status_code} {resp.text[:100]}")
+                self._maybe_log_warning(f"Telegram send failed: {resp.status_code} {resp.text[:100]}")
                 return False
             return True
+        except requests.exceptions.SSLError as e:
+            self._disable_silently(f"SSL error: {str(e)[:80]}")
+            return False
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            # Network hiccup — silently skip, agent keeps running
+            return False
         except requests.RequestException as e:
-            logger.warning(f"Telegram send error: {e}")
+            self._maybe_log_warning(f"Telegram send error: {e}")
             return False
 
     # ── Inbound commands ─────────────────────────────────────────────────────
@@ -125,6 +150,17 @@ class TelegramAlerter:
             return
         self._state = state
         self._agent_logger = agent_logger
+
+        # Connectivity probe — detect SSL/network blocks before starting the loop
+        try:
+            url = _BASE.format(token=self._token, method="getMe")
+            requests.get(url, timeout=8)
+        except requests.exceptions.SSLError as e:
+            self._disable_silently(f"SSL error on probe: {str(e)[:80]}")
+            return
+        except requests.RequestException:
+            pass  # non-SSL network errors are transient — still start polling
+
         self._stop_polling.clear()
         self._poll_thread = threading.Thread(
             target=self._poll_loop, daemon=True, name="telegram-poll"
@@ -139,17 +175,23 @@ class TelegramAlerter:
         while not self._stop_polling.is_set():
             try:
                 self._process_updates()
+            except requests.exceptions.SSLError as e:
+                self._disable_silently(f"SSL error in poll loop: {str(e)[:80]}")
+                return  # exit thread — polling permanently disabled
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                # Transient network issue — silently retry next cycle
+                time.sleep(10)
             except Exception as e:
-                logger.warning(f"Telegram poll error: {e}")
-            time.sleep(5)  # poll every 5 seconds
+                self._maybe_log_warning(f"Telegram poll error: {e}")
+                time.sleep(10)
 
     def _process_updates(self):
         url = _BASE.format(token=self._token, method="getUpdates")
         resp = requests.get(url, params={
             "offset": self._last_update_id + 1,
-            "timeout": 4,
+            "timeout": 30,   # long-poll: block up to 30s server-side
             "allowed_updates": ["message"],
-        }, timeout=10)
+        }, timeout=35)  # slightly longer than server timeout
         if not resp.ok:
             return
         data = resp.json()

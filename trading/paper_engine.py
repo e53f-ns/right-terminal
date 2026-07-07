@@ -88,6 +88,35 @@ class PaperEngine:
         if pair in self.positions:
             raise ValueError(f"Position already open for {pair}")
 
+        # HARD BLOCK — SL and TP are mandatory, no exceptions
+        if not stop_loss or stop_loss == 0:
+            raise ValueError(f"[REJECTED] {pair}: no SL set — trade blocked")
+        if not take_profit or take_profit == 0:
+            raise ValueError(f"[REJECTED] {pair}: no TP set — trade blocked")
+
+        # Confidence-based max leverage — absolute ceiling 8x
+        if confidence >= 90:
+            max_conf_lev = 8
+        elif confidence >= 80:
+            max_conf_lev = 5
+        elif confidence >= 70:
+            max_conf_lev = 3
+        else:
+            max_conf_lev = 2
+        leverage = min(leverage, max_conf_lev, 8)
+
+        # Max 3% loss per trade: margin × leverage × sl_pct ≤ 3% of balance
+        # Auto-reduce leverage until risk fits; if still over at 1x, reduce size
+        is_long = side in ("buy", "long")
+        sl_pct = abs(entry - stop_loss) / entry if entry else 0
+        if sl_pct > 0:
+            max_risk_usdt = self.balance * 0.03
+            while leverage > 1 and size_usdt * leverage * sl_pct > max_risk_usdt:
+                leverage -= 1
+            # Final check — if even 1x is too large, trim size
+            if size_usdt * sl_pct > max_risk_usdt:
+                size_usdt = round(max_risk_usdt / sl_pct, 2)
+
         if self.futures_enabled and leverage > 1:
             # size_usdt is margin; notional = margin * leverage
             margin = size_usdt
