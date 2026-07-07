@@ -5,9 +5,13 @@ Market discovery uses deterministic slugs: btc-updown-5m-{window_ts}
 where window_ts is a Unix timestamp divisible by 300.
 
 Prices come from the CLOB orderbook (public, no auth needed).
+
+Proxy support: set POLYMARKET_PROXY env var (e.g. http://user:pass@host:port
+or socks5://host:port). Required for live trading from blocked regions.
 """
 import json
 import logging
+import os
 import time
 from typing import Optional
 
@@ -19,10 +23,23 @@ GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
 
 
+def _build_proxies() -> Optional[dict]:
+    """Return a requests-style proxy dict from POLYMARKET_PROXY / HTTPS_PROXY."""
+    url = os.getenv("POLYMARKET_PROXY") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+    if not url:
+        return None
+    return {"http": url, "https": url}
+
+
 class PolymarketFetcher:
     def __init__(self, gamma_url: str = GAMMA_BASE, clob_url: str = CLOB_BASE):
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": "trading-agent/1.0"})
+        proxies = _build_proxies()
+        if proxies:
+            self._session.proxies.update(proxies)
+            logger.info("Polymarket proxy enabled: %s",
+                        proxies["https"].split("@")[-1])
         self.gamma_url = gamma_url
         self.clob_url = clob_url
 
@@ -109,6 +126,42 @@ class PolymarketFetcher:
             logger.debug("Polymarket orderbook error: %s", e)
             return {"best_bid": 0, "best_ask": 0, "mid": 0,
                     "spread": 0, "bid_depth": 0, "ask_depth": 0}
+
+    def get_resolved_outcome(self, window_ts: int) -> Optional[str]:
+        """Return 'up'/'down' if market resolved, None if still open/unresolved.
+
+        Source of truth: Polymarket's own resolution via Gamma outcomePrices.
+        For resolved markets these converge to [1.0, 0.0] or [0.0, 1.0].
+        """
+        slug = f"btc-updown-5m-{window_ts}"
+        try:
+            r = self._session.get(
+                f"{self.gamma_url}/events",
+                params={"slug": slug},
+                timeout=5,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not data:
+                return None
+            event = data[0] if isinstance(data, list) else data
+            for m in event.get("markets", []):
+                outcomes = m.get("outcomes", [])
+                outcome_prices = m.get("outcomePrices", [])
+                if isinstance(outcomes, str):
+                    outcomes = json.loads(outcomes)
+                if isinstance(outcome_prices, str):
+                    outcome_prices = json.loads(outcome_prices)
+                # For resolved markets: one price ~1.0, other ~0.0
+                for i, oc in enumerate(outcomes):
+                    if i < len(outcome_prices):
+                        p = float(outcome_prices[i])
+                        if p >= 0.99:   # winner
+                            return oc.lower() if oc.lower() in ("up", "down") else None
+            return None
+        except Exception as e:
+            logger.debug("Poly resolve %s: %s", slug, e)
+            return None
 
     def _parse_event(self, event: dict, window_ts: int) -> Optional[dict]:
         """Extract token IDs and market info from Gamma event."""

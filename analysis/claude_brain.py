@@ -6,21 +6,21 @@ from typing import Optional, List
 import anthropic
 
 SYSTEM_PROMPT = """You are a crypto SCALP trading bot. Respond ONLY in JSON.
-STRICT RULES — break any = HOLD:
-1. NEVER trade against BTC_TREND. If BTC_TREND=BEAR → only SELL. If BULL → only BUY.
-2. 1h AND 4h must confirm direction (HTF_BIAS). If HTF_BIAS=MIXED → HOLD.
-3. Volume must be >1x average. Low volume = HOLD.
-4. SL MUST be within 1% of entry. If proper SL needs >1% → HOLD.
+RULES:
+1. Prefer trades aligned with BTC_TREND. BEAR→prefer SELL, BULL→prefer BUY. Exception: extreme F&G (<20 or >80) allows counter-trend scalps.
+2. HTF_BIAS=BULL/BEAR or BULL_LEAN/BEAR_LEAN → trade aligned direction. HTF_BIAS=MIXED → reduce confidence by 15 but still analyze; only HOLD if no other edge.
+3. Volume >0.7x average is acceptable for scalps. Low volume alone is not a HOLD.
+4. SL MUST be within 1.5% of entry. If proper SL needs >1.5% → HOLD.
 5. R:R must be ≥1.5:1.
 6. Strategy is SCALP only. Max hold 4 hours.
+7. F&G <20 (Extreme Fear) = strong mean-reversion signal. F&G >80 = strong fade signal.
 
-PRE-TRADE CHECKLIST (all must be YES):
-✓ BTC trend matches trade direction?
-✓ 1h confirms direction?
-✓ Volume above average?
+PRE-TRADE CHECKLIST:
+✓ Clear entry level with nearby support/resistance?
+✓ SL within 1.5% of entry?
 ✓ R:R ≥ 1.5:1?
-✓ SL within 1% of entry?
-If ANY is NO → HOLD and state which failed.
+✓ Not fighting a strong opposing trend?
+If setup is valid, trade it. Bias toward action in extreme F&G conditions.
 
 {"action":"BUY/SELL/HOLD","confidence":0-100,"entry":price,"sl":price,"tp":price,"strategy":"SCALP","leverage":1,"reason":"max 20 words"}"""
 
@@ -59,20 +59,40 @@ class ClaudeBrain:
         self._model = model
 
     def analyze(self, context: dict) -> TradeSignal:
+        pair = context.get("pair", "")
         prompt = self._build_prompt(context)
-        try:
-            message = self._client.messages.create(
-                model=self._model,
-                max_tokens=200,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            raw = message.content[0].text
-        except Exception as e:
-            # API error → default HOLD
-            return self._hold_signal(context.get("pair", ""), f"API error: {e}")
 
-        return self._parse_response(raw, current_price=context["price"], pair=context["pair"])
+        for attempt in range(2):
+            try:
+                message = self._client.messages.create(
+                    model=self._model,
+                    max_tokens=200,
+                    system=SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                raw = message.content[0].text
+            except Exception as e:
+                return self._hold_signal(pair, f"API error: {e}")
+
+            signal = self._parse_response(raw, current_price=context["price"], pair=pair)
+
+            # If Claude omitted SL or TP, retry once with an explicit reminder
+            needs_retry = (
+                attempt == 0
+                and signal.decision == "HOLD"
+                and signal.reasoning
+                and ("no SL" in signal.reasoning or "no TP" in signal.reasoning)
+            )
+            if needs_retry:
+                prompt = (
+                    prompt
+                    + "\n\nRETRY: Your previous response was missing sl or tp fields. "
+                    "You MUST include both sl and tp in your JSON response, or respond HOLD."
+                )
+                continue
+            return signal
+
+        return self._hold_signal(pair, "no SL/TP after retry — HOLD")
 
     def _build_prompt(self, ctx: dict) -> str:
         ind = ctx["indicators"]
@@ -88,6 +108,7 @@ class ClaudeBrain:
         macd = ind.get("macd", 0)
         vol_ratio = ind.get("volume_ratio", 1.0)
         funding = ctx.get("funding_rate", 0)
+        oi = (ctx.get('open_interest') or 0) / 1e9
         fg_val = fg.get("value", 50)
         bos = smc.get("bos_detected", False)
         choch = smc.get("choch_detected", False)
@@ -129,7 +150,7 @@ class ClaudeBrain:
             f"MOMENTUM: RSI={rsi:.0f} | MACD={macd_dir}\n"
             f"VOLUME: {vol_ratio:.1f}x avg | {vol_label}\n"
             f"SMC: BOS={'Y' if bos else 'N'} CHOCH={'Y' if choch else 'N'} FVG={'Y' if fvg else 'N'}\n"
-            f"FUNDING: {funding:.4%} | BID/ASK={bid_ratio:.2f}\n"
+            f"FUNDING: {funding:.4%} | OI: ${oi:.2f}B | BID/ASK={bid_ratio:.2f}\n"
             f"SENTIMENT: F&G={fg_val} | NEWS={news_summary}\n"
             f"SCENARIO: {scenario}\n"
             f"MISTAKES: {learning}\n"
@@ -156,6 +177,15 @@ class ClaudeBrain:
                 strategy = "SCALP"
                 leverage = int(data.get("leverage", 1))
                 reason = data.get("reason", "")
+
+                # Safety gates: BUY/SELL with no SL, no TP, or confidence=0 → HOLD
+                if action != "HOLD":
+                    if confidence == 0:
+                        return self._hold_signal(pair, "confidence=0 from Claude — defaulting HOLD")
+                    if sl is None or sl == 0:
+                        return self._hold_signal(pair, "no SL in Claude response — defaulting HOLD")
+                    if tp is None or tp == 0:
+                        return self._hold_signal(pair, "no TP in Claude response — defaulting HOLD")
 
                 return TradeSignal(
                     pair=pair,
@@ -192,6 +222,10 @@ class ClaudeBrain:
         decision = extract(r"\b(BUY|SELL|HOLD)\b").upper() or "HOLD"
         score_str = extract(r"(\d{2,3})\s*[/%]")
         confidence = int(score_str) if score_str.isdigit() else 0
+
+        # Regex fallback never has SL/TP — always treat non-HOLD as HOLD
+        if decision != "HOLD":
+            return self._hold_signal(pair, f"regex fallback (no SL/TP parseable) — defaulting HOLD")
 
         return TradeSignal(
             pair=pair,

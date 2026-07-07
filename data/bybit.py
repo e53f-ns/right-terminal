@@ -66,12 +66,14 @@ class BybitClient:
         }
 
     def get_funding_rate(self, pair: str) -> float:
-        result = self._exchange.fetch_funding_rate(pair)
+        perp = self.to_perp(pair) if ":" not in pair else pair
+        result = self._exchange.fetch_funding_rate(perp)
         return result.get("fundingRate", 0.0)
 
     def get_open_interest(self, pair: str) -> Optional[float]:
+        perp = self.to_perp(pair) if ":" not in pair else pair
         try:
-            result = self._exchange.fetch_open_interest(pair)
+            result = self._exchange.fetch_open_interest(perp)
             return result.get("openInterestValue")
         except Exception:
             return None

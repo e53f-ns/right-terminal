@@ -4,9 +4,9 @@ Polymarket BTC 5-minute Up/Down scalper.
 
 Logic:
   - Find active BTC 5-minute Up/Down markets on Polymarket
-  - Monitor contract prices + BTC price from Bybit
+  - BTC price from Binance public API (no auth, no region blocks for reads)
+  - Settlement via Polymarket's own resolved outcomes
   - Buy undervalued contracts when momentum aligns
-  - Target +5¢, stop -4¢ (or configurable)
   - Paper mode by default
 
 Run standalone:  python -m polymarket.runner
@@ -17,6 +17,8 @@ import time
 import logging
 from datetime import datetime, timezone
 
+import requests
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
@@ -25,14 +27,12 @@ load_dotenv()
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-BYBIT_KEY = os.getenv("BYBIT_API_KEY", "")
-BYBIT_SECRET = os.getenv("BYBIT_SECRET", "")
 PAPER = os.getenv("POLYMARKET_PAPER", "true").lower() == "true"
 INITIAL_BALANCE = float(os.getenv("POLYMARKET_INITIAL_BALANCE", "100"))
 SCAN_INTERVAL = int(os.getenv("POLYMARKET_SCAN_INTERVAL", "5"))
-ENTRY_THRESHOLD = float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.60"))
-EXIT_THRESHOLD = float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.65"))
-STOP_LOSS = float(os.getenv("POLYMARKET_STOP_LOSS", "0.40"))
+ENTRY_THRESHOLD = float(os.getenv("POLYMARKET_ENTRY_THRESHOLD", "0.55"))
+EXIT_THRESHOLD = float(os.getenv("POLYMARKET_EXIT_THRESHOLD", "0.80"))
+STOP_LOSS = float(os.getenv("POLYMARKET_STOP_LOSS", "0.25"))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,10 +46,16 @@ btc_history: list[float] = []
 MAX_HISTORY = 30
 
 
-def get_btc_price(bybit) -> float:
+BINANCE_API = "https://api.binance.com/api/v3"
+
+
+def get_btc_price() -> float:
+    """Current BTC/USDT spot from Binance public API."""
     try:
-        df = bybit.get_candles("BTC/USDT", timeframe="1m", limit=2)
-        return float(df["close"].iloc[-1])
+        r = requests.get(f"{BINANCE_API}/ticker/price",
+                         params={"symbol": "BTCUSDT"}, timeout=5)
+        r.raise_for_status()
+        return float(r.json()["price"])
     except Exception as e:
         logger.warning("BTC price failed: %s", e)
         return 0.0
@@ -64,7 +70,6 @@ def calc_momentum() -> float:
 
 
 def main():
-    from data.bybit import BybitClient
     from polymarket.fetcher import PolymarketFetcher
     from polymarket.screener import screen, check_exits
     from polymarket.executor import PolymarketExecutor
@@ -77,7 +82,6 @@ def main():
     logger.info("Scan interval: %ds", SCAN_INTERVAL)
     logger.info("=" * 65)
 
-    bybit = BybitClient(api_key=BYBIT_KEY, secret=BYBIT_SECRET)
     fetcher = PolymarketFetcher()
     executor = PolymarketExecutor(
         initial_balance=INITIAL_BALANCE,
@@ -90,19 +94,21 @@ def main():
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         logger.info("── CYCLE %d | %s UTC", cycle, ts)
 
-        # ── 1. Settle expired positions ────────────────────────────────────────
-        settled = executor.check_expirations()
-        for r in settled:
-            icon = "+" if r.pnl > 0 else ""
-            logger.info("EXPIRED | %s %s | P&L=%s%.4f",
-                        r.side.upper(), r.slug[-10:], icon, r.pnl)
-
-        # ── 2. Get BTC price ──────────────────────────────────────────────────
-        btc = get_btc_price(bybit)
+        # ── 1. Get BTC price from Binance ─────────────────────────────────────
+        btc = get_btc_price()
         if btc <= 0:
             logger.warning("No BTC price — skipping")
             time.sleep(SCAN_INTERVAL)
             continue
+
+        # ── 2. Settle expired positions via Polymarket's own resolution ───────
+        settled = executor.check_expirations(
+            resolve_fn=lambda window_ts: fetcher.get_resolved_outcome(window_ts),
+        )
+        for r in settled:
+            icon = "+" if r.pnl > 0 else ""
+            logger.info("EXPIRED | %s %s | settle=%.2f | P&L=%s%.4f",
+                        r.side.upper(), r.slug[-10:], r.exit_price, icon, r.pnl)
 
         btc_history.append(btc)
         if len(btc_history) > MAX_HISTORY:

@@ -38,7 +38,11 @@ def compute_indicators(df: pd.DataFrame) -> dict:
 
     # VWAP (rolling session approximation over available data)
     tp = (high + low + close) / 3
-    vwap = float((tp * volume).cumsum().iloc[-1] / volume.cumsum().iloc[-1])
+    cum_vol = volume.cumsum().iloc[-1]
+    if cum_vol == 0:
+        vwap = float(tp.mean())
+    else:
+        vwap = float((tp * volume).cumsum().iloc[-1] / cum_vol)
 
     # Volume analysis
     volume_current = float(volume.iloc[-1])

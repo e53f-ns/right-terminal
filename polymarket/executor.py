@@ -147,17 +147,47 @@ class PolymarketExecutor:
         )
         return record
 
-    def check_expirations(self) -> list:
-        """Close positions whose market has expired."""
+    def check_expirations(self, resolve_fn=None, grace_sec: int = 90) -> list:
+        """Close positions whose market has expired.
+
+        Uses Polymarket's own resolved outcomes (source of truth).
+        Waits up to 10 min if Polymarket hasn't resolved yet;
+        then force-closes at $0 as safety fallback.
+        """
         settled = []
         now = int(datetime.now(timezone.utc).timestamp())
 
         for pos_key, pos in list(self.positions.items()):
-            if pos.close_ts and now > pos.close_ts + 60:
-                # Market expired — treat as loss (we didn't exit in time)
-                record = self.close(pos_key, 0.0, "EXPIRED")
-                if record:
-                    settled.append(record)
+            if not (pos.close_ts and now > pos.close_ts + grace_sec):
+                continue
+
+            # window_ts = start of 5-min window (close_ts - 300)
+            window_ts = pos.close_ts - 300
+
+            winner = resolve_fn(window_ts) if resolve_fn is not None else None
+
+            if winner in ("up", "down"):
+                settle = 1.0 if pos.side == winner else 0.0
+                logger.info(
+                    "SETTLE %s | %s | Polymarket resolved → %s wins → $%.2f/share",
+                    pos_key, pos.side.upper(), winner.upper(), settle,
+                )
+            else:
+                age = now - pos.close_ts
+                if age < 600:
+                    logger.warning(
+                        "SETTLE %s | not resolved yet (age=%ds) — waiting",
+                        pos_key, age,
+                    )
+                    continue
+                settle = 0.0
+                logger.warning(
+                    "SETTLE %s | stale (age=%ds) → forcing $0", pos_key, age,
+                )
+
+            record = self.close(pos_key, settle, "EXPIRED")
+            if record:
+                settled.append(record)
 
         return settled
 

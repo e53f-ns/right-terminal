@@ -20,11 +20,17 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # ── Entry filters ─────────────────────────────────────────────────────────────
-ENTRY_THRESHOLD = 0.60   # buy below this price (paper testing)
-EXIT_THRESHOLD = 0.65    # take profit above this
-STOP_LOSS = 0.40         # stop loss below this
-MAX_SPREAD = 0.50        # skip if spread > 50¢ (no real market yet)
-MIN_TIME_LEFT = 10       # skip if < 10s to close
+# Strategy needs >50% win rate to be +EV. Only enter with strong signal:
+#   - Last 15-30 seconds (minimal time for BTC to reverse)
+#   - Real BTC momentum (≥0.10% in last 25s, not micro-noise)
+#   - Price not too far above 50/50 (we want cheap side when we have edge)
+ENTRY_THRESHOLD = 0.55   # avoid paying premium — only cheap undervalued side
+EXIT_THRESHOLD = 0.80    # target big win or ride to settlement
+STOP_LOSS = 0.25         # wider stop — rely more on true settlement
+MAX_SPREAD = 0.50
+MIN_TIME_LEFT = 15       # skip last 15s (noise spikes)
+MAX_TIME_LEFT = 30       # enter only in last 15-30s window
+MIN_MOMENTUM_PCT = 0.10  # require real BTC move, not noise
 
 
 @dataclass
@@ -61,13 +67,15 @@ def screen(markets: list, btc_price: float, btc_momentum: float,
         slug = m.get("slug", "")
         time_left = m.get("time_left", 0)
 
-        if time_left < MIN_TIME_LEFT:
+        if time_left < MIN_TIME_LEFT or time_left > MAX_TIME_LEFT:
             continue
 
         for side, token_info in m.get("tokens", {}).items():
-            # Skip if already in this market
+            # Skip if already in this market (either side — no hedging)
             pos_key = f"{slug}:{side}"
-            if pos_key in open_slugs:
+            other_side = "down" if side == "up" else "up"
+            other_key = f"{slug}:{other_side}"
+            if pos_key in open_slugs or other_key in open_slugs:
                 continue
 
             ob = m.get("orderbook", {}).get(side, {})
@@ -91,10 +99,10 @@ def screen(markets: list, btc_price: float, btc_momentum: float,
             if ask > entry_threshold:
                 continue
 
-            # Momentum alignment
-            if side == "up" and btc_momentum <= 0:
+            # Momentum alignment — require REAL directional signal
+            if side == "up" and btc_momentum < MIN_MOMENTUM_PCT:
                 continue
-            if side == "down" and btc_momentum >= 0:
+            if side == "down" and btc_momentum > -MIN_MOMENTUM_PCT:
                 continue
 
             candidates.append(PolyCandidate(
@@ -150,8 +158,17 @@ def check_exits(positions: dict, current_markets: dict,
             continue
 
         ob = m.get("orderbook", {}).get(pos.side, {})
-        current_bid = ob.get("best_bid", 0)
-        if current_bid <= 0:
+        clob_bid = ob.get("best_bid", 0)
+        clob_ask = ob.get("best_ask", 0)
+        spread = ob.get("spread", 1)
+
+        # Use CLOB bid if orderbook is liquid, else fall back to gamma price
+        gamma_price = m.get("tokens", {}).get(pos.side, {}).get("gamma_price", 0)
+        if spread <= MAX_SPREAD and clob_bid > 0 and clob_ask > 0:
+            current_bid = clob_bid
+        elif gamma_price > 0:
+            current_bid = gamma_price
+        else:
             continue
 
         if current_bid >= pos.target_price:

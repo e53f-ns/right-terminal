@@ -65,6 +65,7 @@ class RiskManager:
         confidence_adjustment: int = 0,
         total_open_positions: int = 0,
         btc_trend: str = "UNKNOWN",
+        fg_value: int = 50,
     ) -> Tuple[bool, str]:
         if signal.decision == "HOLD":
             return False, "Signal is HOLD"
@@ -75,30 +76,7 @@ class RiskManager:
         if btc_trend == "BULL" and signal.decision == "SELL":
             return False, f"Trend filter: SELL blocked in BTC BULL trend"
 
-        # FIX 3: Force SCALP only
-        strategy = getattr(signal, "strategy", "SCALP")
-        if strategy in ("SWING", "POSITION"):
-            strategy = "SCALP"
-        spec = SIZING.get(strategy, SIZING["SCALP"])
-
-        # FIX 4: SL must be within 1% of entry
-        if signal.entry and signal.stop_loss:
-            sl_pct = abs(signal.entry - signal.stop_loss) / signal.entry * 100
-            if sl_pct > 1.0:
-                return False, f"SL too wide: {sl_pct:.2f}% > 1% max"
-
-        # Global position limit
-        max_pos = getattr(self._cfg, "max_simultaneous_positions", 8)
-        if total_open_positions >= max_pos:
-            return False, f"Max positions reached: {total_open_positions}/{max_pos}"
-
-        effective_min = spec["min_score"] - confidence_adjustment
-        if signal.confidence < effective_min:
-            return False, (
-                f"{strategy} score {signal.confidence} below "
-                f"minimum {effective_min} (adj {confidence_adjustment})"
-            )
-
+        # Hard safety limits — always enforced regardless of confidence
         if daily_pnl_pct <= -self._cfg.daily_loss_limit_pct:
             return False, f"Daily loss limit reached: {daily_pnl_pct:.2f}%"
 
@@ -107,7 +85,24 @@ class RiskManager:
             if datetime.now(timezone.utc) < pause_dt:
                 return False, f"Loss streak pause active until {paused_until}"
 
-        # Strategy slot limits
+        # FIX 3: Force SCALP only
+        strategy = getattr(signal, "strategy", "SCALP")
+        if strategy in ("SWING", "POSITION"):
+            strategy = "SCALP"
+        spec = SIZING.get(strategy, SIZING["SCALP"])
+
+        # FIX 4: SL must be within 1% of entry — always enforced
+        if signal.entry and signal.stop_loss:
+            sl_pct = abs(signal.entry - signal.stop_loss) / signal.entry * 100
+            if sl_pct > 1.0:
+                return False, f"SL too wide: {sl_pct:.2f}% > 1% max"
+
+        # Global position limit — always enforced
+        max_pos = getattr(self._cfg, "max_simultaneous_positions", 8)
+        if total_open_positions >= max_pos:
+            return False, f"Max positions reached: {total_open_positions}/{max_pos}"
+
+        # Strategy slot limits — always enforced
         if strategy_counts:
             current_count = strategy_counts.get(strategy, 0)
             if current_count >= spec["max_positions"]:
@@ -115,7 +110,7 @@ class RiskManager:
                     f"{strategy} slot limit: {current_count}/{spec['max_positions']}"
                 )
 
-        # Exposure limit
+        # Exposure limit — always enforced
         new_trade_pct = self._get_size_pct(signal.confidence, strategy)
         if current_exposure_pct + new_trade_pct > self._cfg.max_total_exposure_pct:
             return False, (
@@ -123,7 +118,15 @@ class RiskManager:
                 f"{self._cfg.max_total_exposure_pct}%"
             )
 
-        return True, "OK"
+        # Pre-filter decides WHETHER to call Claude.
+        # Claude's decision is final — score never blocks it.
+        # Only hard safety limits above (loss limit, SL width, position caps) apply.
+        bear_market = fg_value < 25 and btc_trend == "BEAR"
+        bear_tag = " [BEAR MODE]" if bear_market else ""
+        if signal.confidence >= 65:
+            return True, f"OK{bear_tag}"
+        # Below 65%: still allow — don't block Claude's output on score alone
+        return True, f"OK (low-confidence){bear_tag}"
 
     def is_partial_candidate(self, signal, confidence_adjustment: int = 0) -> bool:
         """Check if signal qualifies for partial position (below min but close)."""

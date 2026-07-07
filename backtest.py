@@ -25,8 +25,8 @@ from trading.paper_engine import PaperEngine, compute_leverage
 # Strategy parameters for signal generation
 STRATEGY_PARAMS = {
     "SCALP": {
-        "rsi_oversold": 40, "rsi_overbought": 60,
-        "vol_min": 1.2, "sl_pct": 0.5, "tp_multiplier": 1.5,
+        "rsi_oversold": 30, "rsi_overbought": 70,
+        "vol_min": 1.5, "sl_pct": 0.5, "tp_multiplier": 1.5,
         "hold_bars": 8,  # 8 x 15m = 2h max
     },
     "SWING": {
@@ -119,16 +119,16 @@ class RuleBasedSignalGenerator:
             action = None
             confidence = 50
 
-            # BUY signals
+            # BUY signals: RSI oversold + high volume + price above EMA200
             if (rsi < params["rsi_oversold"] and vol_ratio > params["vol_min"]
-                    and trend_bull):
+                    and price > ema200 > 0):
                 action = "BUY"
                 confidence = min(60 + int((params["rsi_oversold"] - rsi) * 2)
                                  + int(vol_ratio * 5), 95)
 
-            # SELL signals
+            # SELL signals: RSI overbought + high volume + price below EMA200
             elif (rsi > params["rsi_overbought"] and vol_ratio > params["vol_min"]
-                  and trend_bear):
+                  and ema200 > 0 and price < ema200):
                 action = "SELL"
                 confidence = min(60 + int((rsi - params["rsi_overbought"]) * 2)
                                  + int(vol_ratio * 5), 95)
@@ -295,7 +295,8 @@ def main():
                         help="Strategy to test (SCALP/SWING/POSITION or 'all')")
     parser.add_argument("--days", type=int, default=30, help="Lookback days")
     parser.add_argument("--pair", default="BTC/USDT", help="Pair to backtest")
-    parser.add_argument("--output", default="logs/backtest_results.json",
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    parser.add_argument("--output", default=f"logs/backtest_{today}.json",
                         help="Output file path")
     args = parser.parse_args()
 
@@ -305,16 +306,42 @@ def main():
     cfg = Config()
     bybit = BybitClient(cfg.bybit_api_key, cfg.bybit_secret, cfg.bybit_testnet)
 
-    # Fetch historical data
-    # 30 days of 15m candles = 2880 bars, Bybit max per request = 200
-    # Need multiple requests
+    # Fetch historical data via pagination
+    # 30 days of 15m candles = 2880 bars; Bybit max per request = 200
     print(f"Fetching {args.days} days of 15m candles for {args.pair}...")
-    all_candles = []
+    bars_needed = args.days * 96  # 96 x 15m bars per day
     limit = 200
-    bars_needed = args.days * 24 * 4  # 15m bars per day = 96
+    ms_per_bar = 15 * 60 * 1000
+    all_frames = []
 
-    df = bybit.get_candles(args.pair, timeframe="15m", limit=min(bars_needed, limit))
-    # For >200 bars, we'd need pagination — use what we can get for now
+    # Start from now and work backwards using `since`
+    import time as _time
+    since = int(_time.time() * 1000) - bars_needed * ms_per_bar
+
+    while True:
+        raw = bybit._exchange.fetch_ohlcv(
+            args.pair, timeframe="15m", since=since, limit=limit
+        )
+        if not raw:
+            break
+        chunk = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], unit="ms", utc=True)
+        all_frames.append(chunk)
+        last_ts = raw[-1][0]
+        since = last_ts + ms_per_bar
+        if len(all_frames) * limit >= bars_needed:
+            break
+        if len(raw) < limit:
+            break
+
+    if not all_frames:
+        print("No candle data received — check pair symbol and API credentials.")
+        return
+
+    df = pd.concat(all_frames, ignore_index=True).drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+    # Trim to exactly bars_needed
+    if len(df) > bars_needed:
+        df = df.iloc[-bars_needed:].reset_index(drop=True)
     print(f"Got {len(df)} candles")
 
     bt = Backtester(initial_balance=cfg.paper_initial_balance)

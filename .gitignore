@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+.DS_Store
+.claude/
+.claude-flow/
+.swarm/
+.mcp.json
+logs/
+state.json
+polymarket/data/
+kalshi/data/

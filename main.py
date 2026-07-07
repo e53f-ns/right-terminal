@@ -5,8 +5,11 @@ Crypto (5-15m) + Stocks (60m) + Forex (30m)
 Parallel processing, auto-triggers, time stops
 """
 
+import os
 import time
 import json
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -190,10 +193,15 @@ def pre_filter(bybit, pair, fear_greed_value, logger):
                 reasons.append("SWING:4h downtrend")
             if e20 > e200 and abs(price - e50) / e50 < 0.01:
                 reasons.append("SWING:pullback_ema50")
+
+            # Bear market SHORT setup — no volume requirement, momentum is to downside
+            # RSI > 55 = not yet oversold = room to fall; F&G < 25 = fear conditions
+            if fear_greed_value < 25 and e20 < e200 and rsi > 55:
+                reasons.append(f"BEAR:short_setup F&G={fear_greed_value} RSI={rsi:.0f}")
         except Exception:
             pass
 
-        if fear_greed_value < 20 or fear_greed_value > 80:
+        if fear_greed_value < 25 or fear_greed_value > 80:
             reasons.append(f"POS:F&G {fear_greed_value}")
 
         passed = len(reasons) > 0
@@ -326,10 +334,11 @@ def handle_close(result, pair, state, executor, risk_mgr, trade_logger,
     state.total_trades = state.total_trades + 1
     state._data["daily_trades_today"] = state._data.get("daily_trades_today", 0) + 1
     initial = cfg.paper_initial_balance
+    # Exclude the pair being closed — its notional is already settled in paper_balance
     all_pos = {**state._data.get("open_positions", {}),
                **state._data.get("stock_positions", {}),
                **state._data.get("forex_positions", {})}
-    locked = sum(p.get("size_usdt", 0) for p in all_pos.values())
+    locked = sum(p.get("size_usdt", 0) for k, p in all_pos.items() if k != pair)
     equity = state.paper_balance + locked
     state.daily_pnl_pct = round((equity - initial) / initial * 100, 3)
 
@@ -434,9 +443,13 @@ def compute_htf_bias(bybit, pair, logger):
     except Exception as e:
         logger.warning(f"HTF 4h failed for {pair}: {e}")
 
-    # Combined: both must agree
+    # Combined: both must agree → clear signal; one agrees → lean signal
     if bias_1h == bias_4h and bias_1h in ("BULL", "BEAR"):
         return bias_1h
+    if bias_1h in ("BULL", "BEAR") and bias_4h == "MIXED":
+        return f"{bias_1h}_LEAN"
+    if bias_4h in ("BULL", "BEAR") and bias_1h == "MIXED":
+        return f"{bias_4h}_LEAN"
     return "MIXED"
 
 
@@ -488,6 +501,7 @@ def analyze_single_pair(pair, df_15m, current_price, brain, bybit, coingecko_dat
         try:
             ob_summary = bybit.get_orderbook_summary(pair)
             funding_rate = bybit.get_funding_rate(perp_pair)
+            open_interest = bybit.get_open_interest(perp_pair)
         except Exception:
             ob_summary = {
                 "best_bid": current_price, "best_ask": current_price,
@@ -498,6 +512,7 @@ def analyze_single_pair(pair, df_15m, current_price, brain, bybit, coingecko_dat
                 "bid_ask_ratio": 1.0, "raw_bids": [], "raw_asks": [],
             }
             funding_rate = 0.0
+            open_interest = None
 
         base = pair.split("/")[0]
         try:
@@ -516,7 +531,7 @@ def analyze_single_pair(pair, df_15m, current_price, brain, bybit, coingecko_dat
             "indicators": indicators, "smc": smc,
             "orderbook": ob_summary,
             "funding_rate": funding_rate,
-            "open_interest": None,
+            "open_interest": open_interest,
             "fear_greed": coingecko_data["fear_greed"],
             "btc_dominance": coingecko_data["btc_dominance"],
             "news": news,
@@ -534,6 +549,15 @@ def analyze_single_pair(pair, df_15m, current_price, brain, bybit, coingecko_dat
         }
 
         signal = brain.analyze(context)
+
+        # Verbose: log raw Claude response so we can debug parse issues
+        logger.info(
+            f"[CLAUDE] {pair} → {signal.decision} {signal.confidence}% | "
+            f"entry={signal.entry} SL={signal.stop_loss} TP={signal.take_profit} | "
+            f"reason={signal.reasoning[:60] if signal.reasoning else 'none'}"
+        )
+        if signal.decision != "HOLD":
+            logger.info(f"[CLAUDE_RAW] {pair}: {signal.raw_response[:200]}")
 
         # Force SCALP only
         signal.strategy = "SCALP"
@@ -557,6 +581,19 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
     state.reset_daily_if_new_day()
     display.print_cycle_header(state.paper_balance, state.daily_pnl_pct, cfg.paper_trading)
     logger.info(f"CRYPTO CYCLE START — {datetime.now(timezone.utc).strftime('%H:%M UTC')}")
+
+    # Cycle-start diagnostics
+    logger.info(
+        f"[STATE] balance=${state.paper_balance:.2f} | "
+        f"daily_pnl={state.daily_pnl_pct:.2f}% | "
+        f"consecutive_losses={state.consecutive_losses} | "
+        f"paused_until={state.paused_until} | "
+        f"open_positions={len(state.open_positions)}"
+    )
+    if state.paused_until:
+        pause_dt = datetime.fromisoformat(state.paused_until)
+        if datetime.now(timezone.utc) < pause_dt:
+            logger.warning(f"[CIRCUIT BREAKER] Agent paused until {state.paused_until}")
 
     try:
         fear_greed = coingecko.get_fear_greed()
@@ -657,10 +694,17 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
     btc_trend, btc_price_now, btc_ema200 = compute_btc_trend(bybit, logger)
     state._data["last_btc_trend"] = btc_trend
     logger.info(f"BTC TREND: {btc_trend} | Price: ${btc_price_now:,.0f} | EMA200: ${btc_ema200:,.0f}")
-    if btc_trend == "BEAR":
-        logger.info("⚠ BTC BEAR — only SHORT signals allowed")
+
+    bear_market_mode = btc_trend == "BEAR" and fg_value < 25
+    if bear_market_mode:
+        logger.info(
+            f"BEAR MARKET MODE ACTIVE — F&G={fg_value}, EMA DOWN | "
+            f"Targeting SHORT setups, confidence threshold -8, bypass @70%"
+        )
+    elif btc_trend == "BEAR":
+        logger.info("BTC BEAR — only SHORT signals allowed")
     elif btc_trend == "BULL":
-        logger.info("✓ BTC BULL — only LONG signals allowed")
+        logger.info("BTC BULL — only LONG signals allowed")
 
     # MiroFish scenario simulation
     scenario_summary = "none"
@@ -747,9 +791,10 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
         block_reason = ""
 
         if signal.decision == "HOLD":
-            pass  # no logging for HOLD
+            logger.info(f"[HOLD] {pair}: {(signal.reasoning or 'no reason')[:80]}")
         elif pair in state.open_positions:
             block_reason = "already in position"
+            logger.info(f"[SKIP] {pair}: already in position")
         else:
             can_trade, block_reason = risk_mgr.can_trade(
                 signal=signal,
@@ -764,6 +809,7 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                 confidence_adjustment=conf_adj,
                 total_open_positions=total_open,
                 btc_trend=btc_trend,
+                fg_value=fg_value,
             )
             is_partial = False
             if not can_trade and "score" in block_reason.lower():
@@ -777,6 +823,22 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                 if daily_pnl_pct >= cfg.daily_profit_target_pct and signal.confidence < 85:
                     block_reason = f"daily target hit ({daily_pnl_pct:.1f}%) — A+ only (need 85+)"
                     can_trade = False
+            if not can_trade:
+                sl_pct = (abs(signal.entry - signal.stop_loss) / signal.entry * 100
+                          if signal.entry and signal.stop_loss else 0)
+                logger.warning(
+                    f"[BLOCKED] {pair}: {signal.decision} {signal.confidence}% "
+                    f"SL={signal.stop_loss}({sl_pct:.2f}%) TP={signal.take_profit} "
+                    f"— {block_reason}"
+                )
+                # Diagnostic: would this have executed at 60% confidence threshold?
+                if (signal.decision in ("BUY", "SELL")
+                        and signal.stop_loss and signal.take_profit
+                        and 60 <= signal.confidence < 65):
+                    logger.info(
+                        f"[DIAG] {pair}: would execute at 60% threshold "
+                        f"({signal.confidence}% conf, block={block_reason})"
+                    )
 
             if can_trade:
                 margin = risk_mgr.calculate_position_size(
@@ -836,6 +898,9 @@ def run_crypto_cycle(cfg, bybit, coingecko, cryptopanic, coinglass,
                     state.save()
                 else:
                     block_reason = result.get("reason", "rejected")
+                    logger.warning(f"[REJECTED] {pair}: {block_reason}")
+                    if telegram:
+                        telegram.send(f"⛔ REJECTED: {pair} — {block_reason}")
             else:
                 trade_logger.log_blocked(pair, signal, block_reason,
                                          asset_class="crypto")
@@ -1254,6 +1319,34 @@ def main():
             logger.error(f"Failed to fetch live balance: {e}")
 
     scenario_engine = ScenarioEngine()
+
+    # ── Emergency: close any positions that have no SL or TP ─────────────────
+    unprotected = [
+        pair for pair, pos in state.open_positions.items()
+        if not pos.get("stop_loss") or not pos.get("take_profit")
+    ]
+    if unprotected:
+        logger.warning(
+            f"EMERGENCY CLOSE: {len(unprotected)} unprotected positions found "
+            f"(no SL/TP): {unprotected}"
+        )
+        for pair in unprotected:
+            try:
+                df = bybit.get_candles(pair, timeframe="1m", limit=1)
+                price = float(df["close"].iloc[-1])
+                result = executor._paper_engine.close_position(pair, price)
+                if result and result.get("status") == "closed":
+                    handle_close(result, pair, state, executor, risk_mgr,
+                                 trade_logger, cfg, logger,
+                                 positions_key="open_positions",
+                                 asset_class="crypto")
+                    logger.warning(
+                        f"EMERGENCY CLOSED {pair} @ ${price:,.4f} | "
+                        f"PnL: ${result.get('pnl_usdt', 0):+.2f} (no SL/TP protection)"
+                    )
+            except Exception as e:
+                logger.error(f"Emergency close failed for {pair}: {e}")
+    # ─────────────────────────────────────────────────────────────────────────
 
     display.print_startup(cfg, state.paper_balance)
 

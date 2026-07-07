@@ -45,17 +45,18 @@ def test_partial_position_sizing():
     assert half == full / 2
 
 
-def test_blocks_trade_below_strategy_min():
+def test_low_confidence_still_executes():
+    # Score never blocks Claude's final decision — pre-filter gates whether
+    # to CALL Claude; once Claude speaks, execution proceeds regardless of score.
     rm = RiskManager(make_cfg())
-    # SL within 1% so it passes SL check, but confidence too low
     allowed, reason = rm.can_trade(
         signal=make_signal(confidence=40, strategy="SCALP", entry=84000, stop_loss=83500),
         daily_pnl_pct=-1.0, consecutive_losses=0,
         paused_until=None, current_exposure_pct=0.0,
         btc_trend="BULL",
     )
-    assert not allowed
-    assert "score" in reason.lower()
+    assert allowed
+    assert "low-confidence" in reason
 
 
 def test_trend_filter_blocks_long_in_bear():

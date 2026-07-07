@@ -80,12 +80,12 @@ def test_parse_json_with_surrounding_text():
     assert signal.strategy == "SCALP"  # forced SCALP only
 
 
-def test_parse_invalid_json_falls_back():
+def test_parse_invalid_json_falls_back_to_hold():
+    # Regex fallback has no SL/TP — any non-HOLD must default to HOLD for safety
     brain = ClaudeBrain(api_key="test", model="claude-opus-4-6")
     text = "This is not valid JSON but contains BUY signal with 65% confidence"
     signal = brain._parse_response(text, current_price=84000.0, pair="BTC/USDT")
-    assert signal.decision == "BUY"
-    assert signal.confidence == 65
+    assert signal.decision == "HOLD"  # no SL/TP parseable → safe HOLD
 
 
 def test_parse_garbage_returns_hold():

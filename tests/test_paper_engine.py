@@ -68,13 +68,15 @@ def test_leverage_pnl_amplified():
 
 
 def test_leverage_loss_capped_at_margin():
+    # Leverage capped at 5x: margin=500, notional=2500
+    # Need >20% drop to exceed margin ($500). Use 25% drop (84000→63000).
     engine = PaperEngine(initial_balance=10000.0)
     engine.open_position(
         "BTC/USDT", "buy", 500.0, 84000.0, 83200.0, 87000.0,
-        confidence=85, leverage=10
+        confidence=85, leverage=5
     )
-    # Price drops 15% — loss would be 150% of margin, capped at margin
-    result = engine.close_position("BTC/USDT", exit_price=71400.0)
+    # 25% price drop on 5x: notional 2500 * 25% = $625 loss — capped at $500 margin
+    result = engine.close_position("BTC/USDT", exit_price=63000.0)
     assert result["pnl_usdt"] == -500.0  # capped at margin
 
 
