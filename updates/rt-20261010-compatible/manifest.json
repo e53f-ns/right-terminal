@@ -1,0 +1,21 @@
+{
+  "release": "rt-compatible-20261010",
+  "scope": "compatible-only-not-full-freshness",
+  "files": [
+    {
+      "path": "analysis/claude_brain.py",
+      "baseline_sha256": "6eae9c0b1c346096f36d47573436d2f1611a2d78e402c9f493cdf6c782aa46a8",
+      "sha256": "2bb03ccb584386b88c7ee3bb90c9d358d03b0de8751b227194e45790c655dd2f"
+    },
+    {
+      "path": "data/news_feed.py",
+      "baseline_sha256": "c5af4580897776f33be6573faef6448a6111df0320162baefdc51201ee623293",
+      "sha256": "90dee85618638ffd6afbc53342fd11f67faf6d6753584c8dd039445c30d9554c"
+    },
+    {
+      "path": "data/macro_calendar.py",
+      "baseline_sha256": "aeda7cbdee545f352d5d2bb3a96788cadb614b1f21794e80d325e438c7f7020f",
+      "sha256": "ba0b5594325d2799be3df8b85902ec6dc8ca1174b48e62341c8c1406e346ef44"
+    }
+  ]
+}
