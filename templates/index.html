@@ -136,8 +136,16 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
 
 @media(max-width:900px){.row{flex-direction:column}body{font-size:12px}}
 </style>
+<style>
+#panel-agent .col {flex:1 1 0%;min-width:0;}
+#panel-agent .card {min-width:0;overflow-x:auto;}
+#panel-agent .sv {overflow-wrap:anywhere;}
+#tb-ag-trades td {white-space:nowrap;}
+#tb-ag-trades td:first-child {white-space:pre-line;min-width:130px;}
+</style>
 </head>
 <body>
+<div id="data-quality" style="padding:5px 12px;color:#aaa;font-size:10px;border-bottom:1px solid #553300">Loading source freshness…</div>
 
 <!-- Loading -->
 <div id="loading">
@@ -331,8 +339,10 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
       <div class="card">
         <div class="ctitle">MOEX &mdash; MOSCOW EXCHANGE</div>
         <div class="sr"><span class="sl">IMOEX Index</span><span class="sv" id="moex-price">&mdash;</span></div>
+        <div class="sr"><span class="sl">RTS Index</span><span class="sv" id="rts-price">&mdash;</span></div>
+        <div class="sr"><span class="sl">RGBI TR (OFZ)</span><span class="sv" id="rgbi-price">&mdash;</span></div>
         <table class="bt" style="margin-top:6px"><thead><tr><th>TICKER</th><th>NAME</th><th class="tr">PRICE</th><th class="tr">CHG%</th></tr></thead><tbody id="tb-moex"></tbody></table>
-        <div style="margin-top:6px;font-size:10px;color:var(--dim);font-style:italic">Data may be limited due to sanctions</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--dim);font-style:italic">Live via MOEX ISS</div>
       </div>
     </div>
     <div class="col c1">
@@ -424,6 +434,10 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
         <table class="bt"><thead><tr><th>ETF</th><th class="tr">PRICE</th><th class="tr">CHG%</th></tr></thead><tbody id="tb-bond-etfs"></tbody></table>
       </div>
       <div class="card">
+        <div class="ctitle">RUSSIA &mdash; OFZ GOVERNMENT BONDS</div>
+        <table class="bt"><thead><tr><th>OFZ</th><th class="tr">PRICE %</th><th class="tr">YTM %</th><th class="tr">MATURITY</th></tr></thead><tbody id="tb-ofz"></tbody></table>
+      </div>
+      <div class="card">
         <div class="ctitle">BOND vs EQUITY RELATIVE VALUE</div>
         <div id="bond-equity-rv" style="font-size:13px"></div>
       </div>
@@ -464,10 +478,10 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
     </div>
     <div class="col c1">
       <div class="card">
-        <div class="ctitle">AI NEWS ANALYST <span class="b bc">CLAUDE</span></div>
+        <div class="ctitle">AI NEWS ANALYST <span class="b bc">AI</span></div>
         <div id="ai-news-full"></div>
         <div style="margin-top:8px">
-          <button class="btn btng btn-sm" onclick="askClaudeNews()">REFRESH AI ANALYSIS</button>
+          <button class="btn btng btn-sm" onclick="askAiNews()">REFRESH AI ANALYSIS</button>
         </div>
       </div>
     </div>
@@ -586,6 +600,11 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
         <div id="ag-overview"></div>
       </div>
       <div class="card">
+        <div class="ctitle">CHAT MODEL / TRADING PROVIDER <span class="b bc" id="brain-answering">&mdash;</span></div>
+        <div id="brain-list"><div class="dim">Loading&hellip;</div></div>
+        <div class="dim" style="font-size:10px;margin-top:6px" id="brain-note"></div>
+      </div>
+      <div class="card">
         <div class="ctitle">P&amp;L HISTORY (SPARKLINE)</div>
         <div id="ag-spark" style="padding:4px 0">
           <div class="sparkline" id="spark-line" style="font-size:14px;letter-spacing:2px">No trade history</div>
@@ -607,26 +626,39 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
     </div>
     <div class="col c1">
       <div class="card">
-        <div class="ctitle">PERFORMANCE STATS</div>
+        <div class="ctitle">PERFORMANCE STATS — UPSCALE</div>
         <div id="ag-perf-stats"></div>
       </div>
       <div class="card">
-        <div class="ctitle">CRYPTO POSITIONS</div>
+        <div class="ctitle">CRYPTO POSITIONS — UPSCALE</div>
         <div id="ag-pos-crypto"></div>
       </div>
       <div class="card">
-        <div class="ctitle">STOCK POSITIONS</div>
+        <div class="ctitle">STOCK POSITIONS — UPSCALE</div>
         <div id="ag-pos-stock"></div>
       </div>
       <div class="card">
-        <div class="ctitle">FOREX POSITIONS</div>
+        <div class="ctitle">FOREX / GOLD POSITIONS — UPSCALE</div>
         <div id="ag-pos-forex"></div>
       </div>
       <div class="card">
-        <div class="ctitle">AI TRADE ANALYSIS <span class="b bc">CLAUDE</span></div>
+        <div class="ctitle">CHAT WITH AGENT <span class="b bc" id="chat-provider">—</span></div>
+        <div id="chat-auth" style="font-size:10px;color:var(--cyan)">Establishing trusted-device session (not human login)…</div><div id="chat-context" style="font-size:10px;color:var(--yellow)">Accounting/execution context loading…</div><div id="chat-proposals"></div>
+        <div id="chat-log" style="height:220px;overflow-y:auto;border:1px solid rgba(255,255,255,.08);border-radius:4px;padding:6px;font-size:11px;line-height:1.5;background:rgba(0,0,0,.2)">
+          <div class="dim">Спроси про баланс, риски, сделки, EV, плечо — что угодно про агента. Чат читает разрешённые RT-файлы и предлагает только безопасные настройки UI/news. Применение — отдельной кнопкой владельца; торговых действий нет.</div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input id="chat-input" type="text" placeholder="Спроси агента..." autocomplete="off"
+                 style="flex:1;background:#0a0a0a;border:1px solid rgba(255,255,255,.15);color:var(--fg,#e5e5e5);padding:6px 8px;border-radius:4px;font-family:inherit;font-size:12px"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();sendChat();}">
+          <button class="btn btn-sm" id="chat-send" onclick="sendChat()">SEND</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctitle">AI TRADE ANALYSIS <span class="b bc">CHATGPT</span></div>
         <div class="ai-box loading" id="ai-trades">Click the button to analyze your trades.</div>
         <div style="margin-top:8px">
-          <button class="btn btng" onclick="askClaude()">ASK CLAUDE ABOUT MY TRADES</button>
+          <button class="btn btng" onclick="askAiTrades()">ASK CHATGPT ABOUT MY TRADES</button>
         </div>
       </div>
       <div class="card">
@@ -710,6 +742,50 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
 </div>
 
 <script>
+
+// Server cookie stays HttpOnly; CSRF is memory-only and never enters model history.
+const rtNativeFetch = window.fetch.bind(window);
+let rtCSRF = '', rtSessionUntil = 0, rtSessionPending = null;
+async function rtEnsureSession(force=false) {
+  if(!force && rtCSRF && Date.now()<rtSessionUntil-60000) return;
+  if(!rtSessionPending) rtSessionPending=rtNativeFetch('/api/agent/session', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(async r=>{ const d=await r.json(); if(!r.ok) throw new Error(d.error || 'Device not authorized'); rtCSRF=d.csrf; rtSessionUntil=Date.now()+d.expires_in*1000; return d; })
+    .finally(()=>{rtSessionPending=null;});
+  return rtSessionPending;
+}
+const rtSessionReady=rtEnsureSession();
+window.fetch = async function(resource, options={}) {
+  const u = new URL(typeof resource==='string' ? resource : resource.url, location.href);
+  if(u.origin===location.origin && u.pathname.startsWith('/api/')) {
+    await rtEnsureSession();
+    const headers=new Headers(options.headers || {});
+    if(!['GET','HEAD'].includes((options.method || 'GET').toUpperCase())) headers.set('X-RT-CSRF',rtCSRF);
+    return rtNativeFetch(resource,{...options, headers, credentials:'same-origin'});
+  }
+  return rtNativeFetch(resource,options);
+};
+function renderConfigProposals(proposals) {
+  const host=$('chat-proposals'); if(!host) return;
+  for(const proposal of proposals || []) {
+    const row=document.createElement('section'); row.style.cssText='border:1px solid var(--cyan);padding:8px;margin:8px 0';
+    const title=document.createElement('strong'); title.textContent='Pending configuration proposal — owner approval required';
+    const diff=document.createElement('pre'); diff.style.whiteSpace='pre-wrap'; diff.textContent=typeof proposal.diff==='string' ? proposal.diff : JSON.stringify(proposal.diff,null,2);
+    const approve=document.createElement('button'); approve.textContent='APPROVE THIS DIFF';
+    const reject=document.createElement('button'); reject.textContent='DISMISS'; reject.onclick=()=>row.remove();
+    approve.onclick=async()=> {
+      if(!window.confirm('Apply exactly this non-trading configuration proposal? No trade or restart is authorized.')) return;
+      approve.disabled=true; reject.disabled=true;
+      try {
+        const r=await fetch('/api/agent/config/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proposal_id:proposal.proposal_id,approve:true})});
+        const runtimeNotes={DASHBOARD_CHAT_MODEL:'next scoped chat completion',DASHBOARD_REFRESH_SECONDS:'dashboard broadcast loop hot-read',NEWS_REFRESH_SECONDS:'news worker only when matching parent integration is installed',DASHBOARD_CACHE_TTL_SECONDS:'saved; runtime consumer not wired here',NEWS_CACHE_TTL_SECONDS:'saved; runtime consumer not wired here'};
+        const notes=Object.keys(proposal.new || {}).map(k=>k+': '+(runtimeNotes[k] || 'runtime not verified')).join('; ');
+        const d=await r.json(); title.textContent=r.ok && d.ok ? 'Approved — '+(notes || 'broker returned result')+'. No trade or restart.' : (d.error || 'Approval failed');
+      } catch(e) {title.textContent='Approval uncertain: inspect config before retry';}
+    };
+    row.append(title,diff,approve,reject); host.append(row);
+  }
+}
+
 'use strict';
 let D = {}, wsRetry = 1000, ws = null, dataTs = 0;
 
@@ -783,7 +859,8 @@ function badge(id, open, sym, cls) {
 setInterval(clock, 1000); clock();
 
 // -- WebSocket --
-function connect() {
+async function connect() {
+  try { await rtEnsureSession(); } catch(e) {setConn('off'); setTimeout(connect,30000); return;}
   const proto = location.protocol==='https:'?'wss:':'ws:';
   ws = new WebSocket(proto+'//'+location.host+'/ws');
   ws.onopen = () => { wsRetry=1000; setConn('live'); };
@@ -811,7 +888,7 @@ let lp=0, li=0;
 const liv=setInterval(()=>{ lp=Math.min(lp+Math.random()*10,90); $('lb').style.width=lp+'%'; if(li<LM.length-1) $('lmsg').textContent=LM[li++]; },500);
 function hideLoading() {
   clearInterval(liv); $('lb').style.width='100%'; $('lmsg').textContent='Ready.';
-  setTimeout(()=>{ const l=$('loading'); l.style.transition='opacity .35s'; l.style.opacity='0'; setTimeout(()=>l.style.display='none',350); },180);
+  $('loading').style.display='none';
 }
 
 // -- Tabs --
@@ -833,7 +910,17 @@ function renderAll() {
   renderForex(); renderBonds(); renderNews(); renderGeo();
   renderSignals(); renderAgent(); renderApiStatus(); renderPolymarket();
   loadBacktestResult();
-  document.querySelectorAll('[id^="upd-"]').forEach(el => { if(dataTs) { el.dataset.ts = dataTs; el.textContent = secsAgo(dataTs); } });
+  loadBrain();
+  document.querySelectorAll('[id^="upd-"]').forEach(el => {
+    const key=el.id.slice(4)==='bonds'?'macro':el.id.slice(4), meta=(D.source_meta||{})[key]||{};
+    el.textContent=(meta.status||'LOADING')+' · '+(meta.fetched_at?secsAgo(meta.fetched_at):'no data');
+    el.title=(D.quote_policy||{}).note||'';
+  });
+  const warning=$('data-quality'); if(warning) warning.textContent='HTX crypto: 15s polling · Yahoo stocks/FX: 120s polling, may be delayed / last closed-market quote · CB meetings/rates, carry, correlations and non-US yields: MANUAL REFERENCE, not live';
+}
+
+function aiProvider(ai) {
+  return (ai && ai.provider ? String(ai.provider) : 'AI').toUpperCase();
 }
 
 // -- Ticker --
@@ -915,8 +1002,8 @@ function renderMacro() {
   const aiEl=$('ai-macro');
   if(aiEl) {
     const ai = D.claude_macro;
-    if(ai && ai.text) { aiEl.innerHTML = esc(ai.text) + '<div class="ai-badge">AI</div>' + (ai.timestamp ? '<div class="ai-ts">Updated: '+secsAgo(ai.timestamp)+'</div>' : ''); aiEl.className='ai-box'; }
-    else if(D.api_status) { aiEl.textContent='AI analysis requires ANTHROPIC_API_KEY.'; aiEl.className='ai-box'; }
+    if(ai && ai.text) { aiEl.innerHTML = esc(ai.text) + '<div class="ai-badge">'+esc(aiProvider(ai))+'</div>' + (ai.timestamp ? '<div class="ai-ts">Updated: '+secsAgo(ai.timestamp)+'</div>' : ''); aiEl.className='ai-box'; }
+    else if(D.api_status) { aiEl.textContent='AI analysis unavailable: set ChatGPT OAuth token or OPENAI_API_KEY.'; aiEl.className='ai-box'; }
   }
 }
 
@@ -973,7 +1060,7 @@ function renderCrypto() {
     const spark = d.sparkline_7d||[];
     const sparkStr = sparkline(spark);
     const sparkC = spark.length>=2 ? (spark[spark.length-1]>=spark[0]?'spark-up':'spark-down') : 'spark-flat';
-    h+=`<tr><td class="dim">${d.rank||''}</td><td class="sym">${esc(sym)}</td><td class="tr price">${fmt.p(d.price,pDec)}</td><td class="tr ${cc(d.change_24h)}">${fmt.pct(d.change_24h)}</td><td class="tr ${cc(d.change_7d)}">${fmt.pct(d.change_7d)}</td><td class="sparkline ${sparkC}">${sparkStr}</td><td class="tr ${rsiC}">${rsi??M}</td><td class="tr ${frC}">${fr!=null?fmt.rate(fr):M}</td><td class="tr dim">${fmt.big(d.volume)}</td><td class="tr dim">${fmt.big(d.market_cap)}</td><td class="tr dim">${d.dominance_pct!=null?d.dominance_pct+'%':M}</td><td class="tr ${d.ath_distance_pct!=null?'neg':''}">${d.ath_distance_pct!=null?d.ath_distance_pct+'%':M}</td></tr>`;
+    h+=`<tr><td class="dim">${d.rank||''}</td><td class="sym">${esc(sym)}</td><td class="tr price">${fmt.p(d.price,pDec)}${quoteNote(d)}</td><td class="tr ${cc(d.change_24h)}">${fmt.pct(d.change_24h)}</td><td class="tr ${cc(d.change_7d)}">${fmt.pct(d.change_7d)}</td><td class="sparkline ${sparkC}">${sparkStr}</td><td class="tr ${rsiC}">${rsi??M}</td><td class="tr ${frC}">${fr!=null?fmt.rate(fr):M}</td><td class="tr dim">${fmt.big(d.volume)}</td><td class="tr dim">${fmt.big(d.market_cap)}</td><td class="tr dim">${d.dominance_pct!=null?d.dominance_pct+'%':M}</td><td class="tr ${d.ath_distance_pct!=null?'neg':''}">${d.ath_distance_pct!=null?d.ath_distance_pct+'%':M}</td></tr>`;
   }
   setHTML('tb-crypto', h||'<tr><td colspan="12" class="dim">No data</td></tr>');
 
@@ -1014,7 +1101,7 @@ const SECL={'XLK':'Technology','XLF':'Financials','XLE':'Energy','XLV':'Health C
 
 function sRow(sym, lbl, d) {
   if(!d||!d.price) return `<tr><td class="sym">${esc(lbl)}</td><td colspan="4" class="dim">${M}</td></tr>`;
-  return `<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td><td class="tr dim">${fmt.p(d.day_high)}</td><td class="tr dim">${fmt.p(d.day_low)}</td></tr>`;
+  return `<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${fmt.p(d.price)}${quoteNote(d)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td><td class="tr dim">${fmt.p(d.day_high)}</td><td class="tr dim">${fmt.p(d.day_low)}</td></tr>`;
 }
 
 function renderStocks() {
@@ -1031,7 +1118,7 @@ function renderStocks() {
   let cmdH='';
   for(const [s,l] of Object.entries(cmdMap)) {
     const d=st[s]; if(!d||!d.price) { cmdH+=`<tr><td class="sym">${esc(l)}</td><td colspan="2" class="dim">${M}</td></tr>`; continue; }
-    cmdH+=`<tr><td class="sym">${esc(l)}</td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
+    cmdH+=`<tr><td class="sym">${esc(l)}</td><td class="tr price">${fmt.p(d.price)}${quoteNote(d)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
   }
   setHTML('tb-cmd', cmdH||'<tr><td colspan="3" class="dim">No data</td></tr>');
 
@@ -1040,7 +1127,7 @@ function renderStocks() {
   for(const [sym,info] of Object.entries(cd)) {
     const d=st[sym]||{};
     const recC = d.recommendation==='BUY'||d.recommendation==='STRONG_BUY'?'bg':d.recommendation==='SELL'||d.recommendation==='STRONG_SELL'?'br':'bd';
-    mh+=`<tr><td class="sym">${esc(sym)}</td><td style="font-size:10px">${esc(info.name||'')}</td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td><td class="tr">${d.pe_ratio!=null?d.pe_ratio.toFixed(1):M}</td><td class="tr">${d.eps!=null?'$'+d.eps.toFixed(2):M}</td><td class="tr dim">${fmt.p(d.fifty_two_week_high)}</td><td class="tr dim">${fmt.p(d.fifty_two_week_low)}</td><td class="tr ${d.dist_52w_high_pct!=null?'neg':''}">${d.dist_52w_high_pct!=null?d.dist_52w_high_pct+'%':M}</td><td>${d.recommendation?'<span class="b '+recC+'">'+esc(d.recommendation)+'</span>':M}</td><td style="font-size:10px" class="dim">${esc(info.sector||'')}</td></tr>`;
+    mh+=`<tr><td class="sym">${esc(sym)}</td><td style="font-size:10px">${esc(info.name||'')}</td><td class="tr price">${fmt.p(d.price)}${quoteNote(d)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td><td class="tr">${d.pe_ratio!=null?d.pe_ratio.toFixed(1):M}</td><td class="tr">${d.eps!=null?'$'+d.eps.toFixed(2):M}</td><td class="tr dim">${fmt.p(d.fifty_two_week_high)}</td><td class="tr dim">${fmt.p(d.fifty_two_week_low)}</td><td class="tr ${d.dist_52w_high_pct!=null?'neg':''}">${d.dist_52w_high_pct!=null?d.dist_52w_high_pct+'%':M}</td><td>${d.recommendation?'<span class="b '+recC+'">'+esc(d.recommendation)+'</span>':M}</td><td style="font-size:10px" class="dim">${esc(info.sector||'')}</td></tr>`;
   }
   setHTML('tb-stocks-full', mh||'<tr><td colspan="11" class="dim">No data</td></tr>');
 
@@ -1067,6 +1154,10 @@ function renderStocks() {
   const moexIdx = st['IMOEX.ME'];
   const moexPriceEl = $('moex-price');
   if(moexPriceEl) { moexPriceEl.innerHTML = moexIdx ? `${fmt.p(moexIdx.price)} <span class="${cc(moexIdx.change_pct)}">${fmt.pct(moexIdx.change_pct)}</span>` : M; }
+  for(const [sym,elId] of [['RTSI','rts-price'],['RGBITR','rgbi-price']]) {
+    const el=$(elId), d=st[sym];
+    if(el) el.innerHTML = d ? `${fmt.p(d.price)} <span class="${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</span>` : M;
+  }
   const moexStocks = D.moex_stocks||{};
   let moexH='';
   for(const [sym,lbl] of Object.entries(moexStocks)) {
@@ -1112,6 +1203,10 @@ const FX_MAJORS={'EURUSD=X':'EUR/USD','GBPUSD=X':'GBP/USD','USDJPY=X':'USD/JPY',
 const FX_MINORS={'EURGBP=X':'EUR/GBP','EURJPY=X':'EUR/JPY','GBPJPY=X':'GBP/JPY','AUDJPY=X':'AUD/JPY','EURAUD=X':'EUR/AUD'};
 const FX_EMERGING={'USDTRY=X':'USD/TRY','USDMXN=X':'USD/MXN','USDZAR=X':'USD/ZAR','USDBRL=X':'USD/BRL','USDINR=X':'USD/INR','USDRUB=X':'USD/RUB','USDCNY=X':'USD/CNY'};
 
+function quoteNote(d) {
+  const t=d.quote_ts?new Date(d.quote_ts*1000).toISOString().slice(5,16).replace('T',' '):'time unknown';
+  return `<div style="font-size:8px;color:#999" title="${esc(d._source||'source unknown')}">${esc(d.status||'UNVERIFIED')} · ${t} UTC</div>`;
+}
 function renderFxGroup(tbodyId, pairs) {
   const fx=D.forex||{};
   let h='';
@@ -1119,7 +1214,7 @@ function renderFxGroup(tbodyId, pairs) {
     const d=fx[sym]||{}, dec=sym.includes('JPY')?3:4, chg=d.change_pct;
     const arrow=chg==null?M:chg>0.05?U+' UP':chg<-0.05?D2+' DN':'\u2192 FLAT';
     const ac=chg==null?'':chg>0.05?'pos':chg<-0.05?'neg':'dim';
-    h+=`<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${fmt.p(d.price,dec)}</td><td class="tr ${cc(chg)}">${fmt.pct(chg)}</td><td class="tr dim">${fmt.p(d.day_high,dec)}</td><td class="tr dim">${fmt.p(d.day_low,dec)}</td><td class="${ac}">${arrow}</td></tr>`;
+    h+=`<tr><td class="sym">${esc(lbl)}</td><td class="tr price">${fmt.p(d.price,dec)}${quoteNote(d)}</td><td class="tr ${cc(chg)}">${fmt.pct(chg)}</td><td class="tr dim">${fmt.p(d.day_high,dec)}</td><td class="tr dim">${fmt.p(d.day_low,dec)}</td><td class="${ac}">${arrow}</td></tr>`;
   }
   setHTML(tbodyId, h||'<tr><td colspan="6" class="dim">No data</td></tr>');
 }
@@ -1210,9 +1305,16 @@ function renderBonds() {
   let beh='';
   for(const [sym,d] of Object.entries(be)) {
     if(!d||!d.price) continue;
-    beh+=`<tr><td class="sym">${esc(sym)} <span class="dim" style="font-size:9px">${esc(BETF_NAMES[sym]||'')}</span></td><td class="tr price">${fmt.p(d.price)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
+    beh+=`<tr><td class="sym">${esc(sym)} <span class="dim" style="font-size:9px">${esc(BETF_NAMES[sym]||'')}</span></td><td class="tr price">${fmt.p(d.price)}${quoteNote(d)}</td><td class="tr ${cc(d.change_pct)}">${fmt.pct(d.change_pct)}</td></tr>`;
   }
   setHTML('tb-bond-etfs', beh||'<tr><td colspan="3" class="dim">No data</td></tr>');
+
+  const ofz=D.moex_bonds||[];
+  let ofzH='';
+  for(const b of ofz) {
+    ofzH+=`<tr><td class="sym">${esc((b.name||b.secid).replace('ОФЗ ','OFZ '))}</td><td class="tr">${fmt.p(b.price_pct)}</td><td class="tr">${b.yield!=null?b.yield.toFixed(2):'&mdash;'}</td><td class="tr dim" style="font-size:10px">${esc((b.maturity||'').slice(0,7))}</td></tr>`;
+  }
+  setHTML('tb-ofz', ofzH||'<tr><td colspan="4" class="dim">No data</td></tr>');
 
   const rvEl=$('bond-equity-rv');
   if(rvEl) {
@@ -1229,7 +1331,13 @@ function renderBonds() {
 function renderNewsItems(containerId, items, titleKey='title', showSource=true) {
   const el=$(containerId); if(!el) return;
   el.textContent='';
-  if(!items||!items.length) { el.textContent='No data available'; el.className='dim'; return; }
+  if(!items||!items.length) {
+    const keys={'news-crypto':'crypto_news','news-macro':'macro_news','news-google':'google_news','news-wsb':'reddit_wsb','news-rbtc':'reddit_bitcoin'};
+    const k=keys[containerId], n=D.news||{};
+    el.textContent=(n.statuses||{})[k]||'LOADING';
+    if((n.errors||{})[k]) el.textContent+=' — '+n.errors[k].join('; ');
+    el.className='dim'; return;
+  }
   el.className='';
   for(const item of items) {
     const div=document.createElement('div');
@@ -1237,8 +1345,9 @@ function renderNewsItems(containerId, items, titleKey='title', showSource=true) 
     div.className='news-item'+(breaking?' breaking':'');
     let meta = '';
     if(showSource && item.source) meta += esc(item.source);
-    if(item.published) { const d=new Date(item.published); meta += (meta?' \u2014 ':'')+d.toISOString().slice(0,16).replace('T',' '); }
-    if(item.created) { const d=new Date(item.created); meta += (meta?' \u2014 ':'')+d.toISOString().slice(0,16).replace('T',' '); }
+    if(item.published) { const d=new Date(item.published); if(!isNaN(d.getTime())) meta += (meta?' — ':'')+d.toISOString().slice(0,16).replace('T',' '); }
+    if(item.created) { const d=new Date(item.created); if(!isNaN(d.getTime())) meta += (meta?' — ':'')+d.toISOString().slice(0,16).replace('T',' '); }
+    if(item.text_status) meta+=' · '+esc(item.text_status);
     if(item.score!=null) meta += ' \u2014 \u25b2'+item.score;
     if(item.comments!=null) meta += ' \u2014 '+item.comments+' comments';
     if(item.flair) meta += ' <span class="b bo">'+esc(item.flair)+'</span>';
@@ -1256,32 +1365,33 @@ function renderAiNews() {
   if (!el) return;
   if (!ai) { el.innerHTML = '<div class="ai-box loading">Waiting for AI analysis...</div>'; return; }
   if (typeof ai === 'string') { el.innerHTML = `<div class="ai-box">${esc(ai)}<div class="ai-badge">AI</div></div>`; return; }
-  if (ai.summary && !ai.market_moving) { el.innerHTML = `<div class="ai-box">${esc(ai.summary)}<div class="ai-badge">AI</div></div>`; return; }
+  const provider = aiProvider(ai);
+  if (ai.summary && !ai.market_moving) { el.innerHTML = `<div class="ai-box">${esc(ai.summary)}<div class="ai-badge">${esc(provider)}</div></div>`; return; }
 
   let h = '';
   if (ai.market_moving && ai.market_moving.length) {
-    h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div>';
+    h += `<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">${esc(provider)}</div>`;
     h += '<div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">MARKET MOVING EVENTS</div>';
     ai.market_moving.forEach((e,i) => { h += `<div style="padding:2px 0;font-size:12px">${i+1}. ${esc(e)}</div>`; });
     if(ai.timestamp) h += `<div class="ai-ts">Updated: ${secsAgo(ai.timestamp)}</div>`;
     h += '</div>';
   }
   const outlooks = [['CRYPTO',ai.crypto_outlook,'var(--orange)'],['STOCKS',ai.stocks_outlook,'var(--green)'],['FOREX',ai.forex_outlook,'var(--cyan)'],['COMMODITIES',ai.commodities_outlook,'var(--yellow)'],['BONDS',ai.bonds_outlook,'var(--white)']];
-  h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div><div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">ASSET CLASS IMPACT</div>';
+  h += `<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">${esc(provider)}</div><div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">ASSET CLASS IMPACT</div>`;
   outlooks.forEach(([label, text, col]) => { if(text) h += `<div style="padding:3px 0;border-bottom:1px solid #1a1a1a"><span style="color:${col};font-size:10px;font-weight:bold">${label}:</span> <span style="font-size:12px">${esc(text)}</span></div>`; });
   h += '</div>';
   if (ai.opportunities && ai.opportunities.length) {
-    h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div><div style="color:var(--green);font-size:11px;font-weight:bold;margin-bottom:4px">TRADING OPPORTUNITIES</div>';
+    h += `<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">${esc(provider)}</div><div style="color:var(--green);font-size:11px;font-weight:bold;margin-bottom:4px">TRADING OPPORTUNITIES</div>`;
     ai.opportunities.forEach(o => { h += `<div style="padding:2px 0;font-size:12px;color:var(--green)">\u2022 ${esc(o)}</div>`; });
     h += '</div>';
   }
   if (ai.risks && ai.risks.length) {
-    h += '<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">AI</div><div style="color:var(--red);font-size:11px;font-weight:bold;margin-bottom:4px">RISKS TO WATCH</div>';
+    h += `<div class="ai-box" style="margin-bottom:6px"><div class="ai-badge">${esc(provider)}</div><div style="color:var(--red);font-size:11px;font-weight:bold;margin-bottom:4px">RISKS TO WATCH</div>`;
     ai.risks.forEach(r => { h += `<div style="padding:2px 0;font-size:12px;color:var(--red)">\u26a0 ${esc(r)}</div>`; });
     h += '</div>';
   }
   if (ai.sentiment) {
-    h += '<div class="ai-box"><div class="ai-badge">AI</div><div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">AI SENTIMENT (-100 to +100)</div>';
+    h += `<div class="ai-box"><div class="ai-badge">${esc(provider)}</div><div style="color:var(--orange);font-size:11px;font-weight:bold;margin-bottom:4px">AI SENTIMENT (-100 to +100)</div>`;
     for (const [asset, score] of Object.entries(ai.sentiment)) {
       const s = Number(score);
       const col = s > 20 ? 'var(--green)' : s < -20 ? 'var(--red)' : 'var(--yellow)';
@@ -1289,7 +1399,7 @@ function renderAiNews() {
     }
     h += '</div>';
   }
-  el.innerHTML = h;
+  el.innerHTML = (ai.coverage?'<div class="dim" style="font-size:10px">'+esc(ai.coverage)+'</div>':'')+h;
 }
 
 function renderNews() {
@@ -1309,11 +1419,11 @@ function renderNews() {
   renderAiNews();
 }
 
-async function askClaudeNews() {
+async function askAiNews() {
   const box=$('ai-news-full'); if(!box) return;
   box.innerHTML='<div class="ai-box loading">Analyzing news...</div>';
   try {
-    const r=await fetch('/api/claude/news',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const r=await fetch('/api/ai/news',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     const data=await r.json();
     if(data.analysis) { D.claude_news = typeof data.analysis === 'string' ? {summary: data.analysis} : data.analysis; renderAiNews(); }
     else { box.innerHTML='<div class="ai-box">No analysis returned.<div class="ai-badge">AI</div></div>'; }
@@ -1463,7 +1573,22 @@ function renderAgent() {
   const perfEl=$('ag-perf-stats');
   if(perfEl) {
     const pa=ag.perf_all||{}, pc=ag.perf_crypto||{}, ps=ag.perf_stock||{}, pf=ag.perf_forex||{};
-    const perfRow=(label,s)=>`<div style="margin-bottom:10px"><div style="color:var(--cyan);font-size:11px;font-weight:bold;margin-bottom:4px">${label}</div><div class="sr"><span class="sl">Total</span><span class="sv">${s.total||0}</span></div><div class="sr"><span class="sl">Win Rate</span><span class="sv ${(s.win_rate||0)>=50?'pos':'neg'}">${s.win_rate||0}%</span></div><div class="sr"><span class="sl">W / L</span><span class="sv"><span class="pos">${s.wins||0}</span> / <span class="neg">${s.losses||0}</span></span></div><div class="sr"><span class="sl">Avg Win</span><span class="sv pos">$${fmt.p(s.avg_win||0)}</span></div><div class="sr"><span class="sl">Avg Loss</span><span class="sv neg">$${fmt.p(s.avg_loss||0)}</span></div><div class="sr"><span class="sl">Profit Factor</span><span class="sv">${s.profit_factor||0}</span></div><div class="sr"><span class="sl">Max Drawdown</span><span class="sv neg">$${fmt.p(s.max_drawdown||0)}</span></div><div class="sr"><span class="sl">Best Trade</span><span class="sv pos">$${fmt.p(s.best_trade||0)}</span></div><div class="sr"><span class="sl">Worst Trade</span><span class="sv neg">$${fmt.p(s.worst_trade||0)}</span></div></div>`;
+    const perfRow=(label,s)=>{
+    const ev=s.ev_per_trade||0;
+    const dd=s.max_drawdown_pct||0;
+    return `<div style="margin-bottom:10px"><div style="color:var(--cyan);font-size:11px;font-weight:bold;margin-bottom:4px">${label}</div>`
+    +`<div class="sr"><span class="sl">Total</span><span class="sv">${s.total||0}</span></div>`
+    +`<div class="sr"><span class="sl">Win Rate</span><span class="sv ${(s.win_rate||0)>=50?'pos':'neg'}">${s.win_rate||0}%</span></div>`
+    +`<div class="sr"><span class="sl">W / L</span><span class="sv"><span class="pos">${s.wins||0}</span> / <span class="neg">${s.losses||0}</span></span></div>`
+    +`<div class="sr"><span class="sl">Avg Win</span><span class="sv pos">$${fmt.p(s.avg_win||0)}</span></div>`
+    +`<div class="sr"><span class="sl">Avg Loss</span><span class="sv neg">$${fmt.p(s.avg_loss||0)}</span></div>`
+    +`<div class="sr"><span class="sl">Profit Factor</span><span class="sv">${s.profit_factor||0}</span></div>`
+    +`<div class="sr"><span class="sl">EV / Trade</span><span class="sv ${ev>=0?'pos':'neg'}">${ev>=0?'+':''}$${fmt.p(Math.abs(ev))}</span></div>`
+    +`<div class="sr"><span class="sl">Max Drawdown</span><span class="sv neg">${dd.toFixed(2)}%</span></div>`
+    +`<div class="sr"><span class="sl">Best Trade</span><span class="sv pos">$${fmt.p(s.best_trade||0)}</span></div>`
+    +`<div class="sr"><span class="sl">Worst Trade</span><span class="sv neg">$${fmt.p(s.worst_trade||0)}</span></div>`
+    +`</div>`;
+  };
     let html=perfRow('ALL ASSETS',pa);
     if(pc.total) html+=perfRow('CRYPTO',pc);
     if(ps.total) html+=perfRow('STOCKS',ps);
@@ -1472,9 +1597,37 @@ function renderAgent() {
   }
 
   // Multi-asset positions
-  _renderPosCards('ag-pos-crypto', ag.open_positions||{});
+  renderVenuePositions('ag-pos-crypto', D.upscale_venue, ag.open_positions||{});
   _renderPosCards('ag-pos-stock', ag.stock_positions||{});
   _renderPosCards('ag-pos-forex', ag.forex_positions||{});
+}
+
+function renderVenuePositions(elId, venue, local) {
+  const box=$(elId); if(!box)return;
+  box.textContent=''; box.className='';
+  const fresh=venue && venue.status==='LIVE' && venue.fetched_at && Date.now()/1000-venue.fetched_at<90;
+  const note=document.createElement('div'); note.className='dim';
+  note.textContent=venue&&venue.fetched_at ? `UPSCALE ${fresh?'VERIFIED':'STALE'} · ${new Date(venue.fetched_at*1000).toISOString()}` : 'UPSCALE UNAVAILABLE — local accounting is not a verified live position';
+  box.appendChild(note);
+  if(!venue || !Array.isArray(venue.positions))return;
+  for(const p of venue.positions){
+    const card=document.createElement('div');card.style.cssText='border:1px solid #181818;padding:8px;margin-top:6px';
+    const effective=Number.isFinite(p.effective_leverage)?`≈${p.effective_leverage.toFixed(2)}x (notional / margin)`:'leverage unavailable';
+    const orders=p.protective_orders||[];
+    const stop=orders.filter(o=>o.type==='stop'),take=orders.filter(o=>o.type==='take');
+    const priceText=n=>Number.isFinite(Number(n))?Number(n).toFixed(6):M;
+    const price=os=>os.length===1?priceText(os[0].trigger_price):'unverified / multiple';
+    card.innerHTML=`<div><span class="sym">${esc(p.symbol)}</span> <span style="color:var(--cyan)">${esc((p.direction||'').toUpperCase())} ${esc(effective)}</span></div><div>Entry: ${priceText(p.entry)} &nbsp; SL: ${price(stop)} &nbsp; TP: ${price(take)}</div><div class="dim">Venue margin: $${Number(p.margin).toFixed(2)} · Notional: $${Number(p.notional).toFixed(2)} · Size: ${Number(p.size).toFixed(4)}</div>`;
+    const lp=local[p.symbol+'/USDT'];
+    if(lp&&lp.leverage){const hint=document.createElement('div');hint.className='dim';hint.textContent=`Local requested leverage: ${lp.leverage}x — not venue execution`;card.appendChild(hint);}
+    box.appendChild(card);
+  }
+  if(fresh && !venue.positions.length){const no=document.createElement('div');no.textContent='No active Upscale positions';box.appendChild(no);}
+  if(fresh){
+    const live=new Set(venue.positions.map(p=>p.symbol));
+    const ghosts=Object.keys(local).filter(pair=>!live.has(pair.split('/')[0]));
+    if(ghosts.length){const warn=document.createElement('div');warn.className='neg';warn.textContent='Local-only / reconciliation needed: '+ghosts.join(', ');box.appendChild(warn);}
+  }
 }
 
 function _renderPosCards(elId, pos) {
@@ -1497,13 +1650,125 @@ function _renderPosCards(elId, pos) {
   }
 }
 
-async function askClaude() {
+function renderBrain(d){
+  const box = document.getElementById('brain-list');
+  const ans = document.getElementById('brain-answering');
+  ans.textContent = (d.answering || d.configured_chat_model || 'MODEL UNAVAILABLE').toUpperCase();
+  ans.className = 'b ' + (!d.answering ? 'bd'
+                        : d.answering === d.preferred ? 'bg' : 'bw');
+  box.innerHTML = (d.providers || []).map(p => {
+    const isPref = p.name === d.preferred;
+    const dot    = p.ready ? '<span style="color:var(--up)">&#9679;</span>'
+                           : '<span style="color:var(--down)">&#9679;</span>';
+    const rank   = p.rank === null ? '' :
+                   (p.rank === 0 ? ' <span class="b bg">ОСНОВНОЙ</span>'
+                                 : ' <span class="b">запасной ' + p.rank + '</span>');
+    return '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;'
+         + 'border-bottom:1px solid rgba(255,255,255,.05)">'
+         + '<button class="btn btn-sm' + (isPref ? ' btng' : '') + '"'
+         + ' style="min-width:96px" disabled title="Trading provider changes are not authorized from dashboard">'
+         + (isPref ? '✓ ' : '') + p.name + '</button>'
+         + '<div style="flex:1;font-size:10px;line-height:1.3">'
+         + dot + ' ' + p.label + rank
+         + '<div class="dim" style="font-size:9px">' + (p.detail || '') + '</div>'
+         + '</div></div>';
+  }).join('');
+}
+
+async function loadBrain(){
+  try{
+    const r = await fetch('/api/brain');
+    renderBrain(await r.json());
+  }catch(e){
+    document.getElementById('brain-list').innerHTML =
+      '<div class="dim">Не удалось получить статус мозгов</div>';
+  }
+}
+
+async function setBrain(name){
+  const note = document.getElementById('brain-note');
+  note.textContent = 'Переключаю на ' + name + '\u2026';
+  try{
+    const r = await fetch('/api/brain', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({provider: name}),
+    });
+    const d = await r.json();
+    if(!d.ok){ note.textContent = 'Ошибка: ' + (d.error || 'не удалось'); return; }
+    note.textContent = d.ready
+      ? ('Готово — решения принимает ' + name)
+      : (d.detail + ' — ' + d.note);
+    loadBrain();
+  }catch(e){ note.textContent = 'Ошибка сети'; }
+}
+
+let CHAT_HISTORY = [];
+rtSessionReady.then(async d=>{ $('chat-auth').textContent=d.identity; const r=await fetch('/api/agent/context'); const v=await r.json(); if(r.ok) $('chat-context').textContent='PaperEngine — оболочка исполнения | '+v.context.execution+' | деньги и сделки: только проверенный Upscale snapshot'; }).catch(()=>{ $('chat-auth').textContent='Device/session denied; chat and private data unavailable'; });
+
+function chatAppend(role, text) {
+  const log = $('chat-log');
+  if (!log) return;
+  const isUser = role === 'user';
+  const row = document.createElement('div');
+  row.style.marginBottom = '8px';
+  row.innerHTML =
+      '<div style="color:' + (isUser ? 'var(--cyan)' : 'var(--fg,#e5e5e5)') + ';font-weight:bold;font-size:10px;margin-bottom:2px">'
+    + (isUser ? 'YOU' : 'AGENT') + '</div>'
+    + '<div style="white-space:pre-wrap">' + esc(text) + '</div>';
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat() {
+  const input = $('chat-input'), btn = $('chat-send'), badge = $('chat-provider');
+  if (!input) return;
+  const message = input.value.trim();
+  if (!message) return;
+
+  chatAppend('user', message);
+  CHAT_HISTORY.push({role: 'user', content: message});
+  input.value = '';
+  input.disabled = true;
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  try {
+    const r = await fetch('/api/agent/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: message, history: CHAT_HISTORY.slice(-12)}),
+    });
+    const d = await r.json();
+    if (d.ok && d.reply) {
+      chatAppend('assistant', d.reply);
+      CHAT_HISTORY.push({role: 'assistant', content: d.reply});
+      if (badge) badge.textContent = (d.provider || '—').toUpperCase() + ' | configured: ' + (d.configured_model || '?') + ' | answering: ' + (d.answering_model || 'not reported');
+      renderConfigProposals(d.proposals);
+    } else {
+      chatAppend('assistant', d.reply || 'Мозг недоступен, попробуй ещё раз.');
+    }
+  } catch (e) {
+    chatAppend('assistant', 'Ошибка сети: ' + e.message);
+  } finally {
+    input.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'SEND'; }
+    input.focus();
+  }
+}
+
+async function askAiTrades() {
   const box=$('ai-trades'); if(!box) return;
   box.textContent='Analyzing trades...'; box.className='ai-box loading';
   try {
-    const r=await fetch('/api/claude/trades',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const r=await fetch('/api/ai/trades',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     const data=await r.json();
-    box.textContent=data.analysis||'No analysis returned.'; box.className='ai-box';
+    const analysis = data.analysis;
+    if(analysis && typeof analysis === 'object') {
+      box.innerHTML = esc(analysis.text || 'No analysis returned.') + '<div class="ai-badge">'+esc(aiProvider(analysis))+'</div>' + (analysis.timestamp ? '<div class="ai-ts">Updated: '+secsAgo(analysis.timestamp)+'</div>' : '');
+    } else {
+      box.textContent=analysis||'No analysis returned.';
+    }
+    box.className='ai-box';
   } catch(e) { box.textContent='Error: '+e.message; box.className='ai-box'; }
 }
 
@@ -1680,6 +1945,12 @@ function agentStat(statusId, perfId, ag) {
   const pause=ag.pause_until?`<div class="sr"><span class="sl">Paused Until</span><span class="sv" style="color:var(--yellow)">${esc(ag.pause_until)}</span></div>`:'';
   const el=$(statusId);
   if(el) el.innerHTML=`<div class="sr"><span class="sl">Status</span><span class="sv"><span class="b ${sc}">${esc(ag.status||M)}</span></span></div><div class="sr"><span class="sl">Mode</span><span class="sv"><span class="b ${mc}">${esc(ag.mode||M)}</span></span></div><div class="sr"><span class="sl">Equity</span><span class="sv price" style="font-size:14px">$${ag.equity!=null?Number(ag.equity).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):M}</span></div><div class="sr"><span class="sl">Free Balance</span><span class="sv price">$${ag.balance!=null?Number(ag.balance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):M}</span></div><div class="sr"><span class="sl">Locked Margin</span><span class="sv dim">$${ag.locked_margin!=null?Number(ag.locked_margin).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):M}</span></div><div class="sr"><span class="sl">Realized P&amp;L</span><span class="sv ${cc(ag.realized_pnl)}">${ag.realized_pnl!=null?'$'+fmt.p(ag.realized_pnl):M}</span></div><div class="sr"><span class="sl">Unrealized P&amp;L</span><span class="sv ${cc(ag.unrealized_pnl)}">${ag.unrealized_pnl!=null?'$'+fmt.p(ag.unrealized_pnl):M}</span></div><div class="sr"><span class="sl">Daily P&amp;L</span><span class="sv ${cc(ag.daily_pnl_pct)}">${ag.daily_pnl_pct!=null?fmt.pct(ag.daily_pnl_pct):M}</span></div>${pause}`;
+  if(el && statusId==='ag-overview') {
+    const v=D.upscale_venue, a=v&&v.account;
+    const dollars=n=>n!=null?'$'+Number(n).toFixed(2):M;
+    const native=a?`<div style="color:var(--cyan);margin-bottom:6px">UPSCALE ${esc(v.status)} · ${v.fetched_at?esc(new Date(v.fetched_at*1000).toISOString()):'timestamp unavailable'}</div><div class="sr"><span class="sl">Venue Equity</span><span class="sv">${dollars(a.equity)}</span></div><div class="sr"><span class="sl">Venue Free Balance</span><span class="sv">${dollars(a.free_balance)}</span></div>`:'<div class="neg">Venue account unavailable</div>';
+    el.innerHTML=native+'<div style="color:var(--yellow);margin-top:8px">LOCAL PAPER ACCOUNTING — NOT VENUE BALANCE / PERFORMANCE</div>'+el.innerHTML;
+  }
   const pe=$(perfId);
   if(pe) {
     const wr=ag.win_rate??0;
@@ -1727,7 +1998,10 @@ function renderApiStatus() {
     const e=$(id); if(e) e.className='dot '+(s[k]==='LIVE'?'dl':'de');
   });
   const aiEl=$('sb-ai');
-  if(aiEl) aiEl.textContent='AI: '+(D.claude_macro||D.claude_news?'OK':M);
+  if(aiEl) {
+    const provider = D.claude_macro?.provider || D.claude_news?.provider;
+    aiEl.textContent = 'AI: '+(provider ? provider : (s.ai==='LIVE' ? 'READY' : M));
+  }
 }
 
 function exportCSV(panel) { window.open('/api/export/'+panel,'_blank'); }
@@ -1768,7 +2042,7 @@ function renderPolymarket() {
         const ttl = Math.max(0, (m.close_ts||0) - Math.floor(Date.now()/1000));
         const tr = document.createElement('tr');
         const cells = [
-          (m.slug||'').slice(-10),
+          (m.slug||'').replace('-updown-5m-',' '),
           side.toUpperCase(),
           fmt.p(ob.best_bid,3),
           fmt.p(ob.best_ask,3),
@@ -1796,7 +2070,7 @@ function renderPolymarket() {
     if(!pos.length) { const tr=document.createElement('tr'); const td=document.createElement('td'); td.colSpan=6; td.className='dim'; td.textContent='No open positions'; tr.appendChild(td); ptb.appendChild(tr); }
     for(const p of pos) {
       const tr = document.createElement('tr');
-      [[(p.slug||'').slice(-10),''], [(p.side||'').toUpperCase(),p.side==='up'?'pos':'neg'], [fmt.p(p.entry_price,3),'tr'], [fmt.p(p.target_price,3),'tr'], [fmt.p(p.stop_price,3),'tr'], ['$'+fmt.p(p.stake,2),'tr']].forEach(([txt,cls])=>{
+      [[(p.slug||'').replace('-updown-5m-',' '),''], [(p.side||'').toUpperCase(),p.side==='up'?'pos':'neg'], [fmt.p(p.entry_price,3),'tr'], [fmt.p(p.target_price,3),'tr'], [fmt.p(p.stop_price,3),'tr'], ['$'+fmt.p(p.stake,2),'tr']].forEach(([txt,cls])=>{
         const td=document.createElement('td'); td.textContent=txt; if(cls) td.className=cls; tr.appendChild(td);
       });
       ptb.appendChild(tr);
@@ -1811,7 +2085,7 @@ function renderPolymarket() {
     for(const r of hist.slice(-20).reverse()) {
       const tr = document.createElement('tr');
       const pnlTxt = (r.pnl>=0?'+':'')+Number(r.pnl||0).toFixed(4);
-      [[(r.closed_at||'').slice(11,19),''], [(r.slug||'').slice(-10),''], [(r.side||'').toUpperCase(),''], [fmt.p(r.entry_price,3),'tr'], [fmt.p(r.exit_price,3),'tr'], [pnlTxt,'tr '+(r.pnl>=0?'pos':'neg')], [r.result||'',r.result==='TARGET'?'pos':'neg']].forEach(([txt,cls])=>{
+      [[(r.closed_at||'').slice(11,19),''], [(r.slug||'').replace('-updown-5m-',' '),''], [(r.side||'').toUpperCase(),''], [fmt.p(r.entry_price,3),'tr'], [fmt.p(r.exit_price,3),'tr'], [pnlTxt,'tr '+(r.pnl>=0?'pos':'neg')], [r.result||'',r.result==='TARGET'?'pos':'neg']].forEach(([txt,cls])=>{
         const td=document.createElement('td'); td.textContent=txt; if(cls) td.className=cls; tr.appendChild(td);
       });
       htb.appendChild(tr);
@@ -1819,8 +2093,124 @@ function renderPolymarket() {
   }
 }
 
+// Venue execution view: preserve layout; never substitute paper data.
+const actualNumber=(v,d=9)=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(d).replace(/\.?0+$/,''):'нет данных';
+const actualMoney=v=>typeof v==='number'&&Number.isFinite(v)?'$'+v.toFixed(2):'нет данных';
+const actualTime=v=>v?new Date(v).toLocaleString('ru-RU'):'нет данных';
+const actualFresh=v=>!!(v&&v.status==='LIVE'&&v.fetched_at&&Date.now()/1000-v.fetched_at<90);
+const legacyAgentStat=agentStat;
+agentStat=function(statusId,perfId,ag){
+ const v=D.upscale_venue||{},a=v.account||{},e=$(statusId);
+ if(e)e.innerHTML=`<div class="sr"><span class="sl">Процесс RT</span><span class="sv">${esc(ag.status||'UNKNOWN')}</span></div><div class="sr"><span class="sl">Счёт Upscale</span><span class="sv">${esc(a.type||'нет данных')} · ${esc(a.phase||'')}</span></div><div class="sr"><span class="sl">Средства (equity)</span><span class="sv">${actualMoney(a.equity)}</span></div><div class="sr"><span class="sl">Доступные средства</span><span class="sv">${actualMoney(a.free_balance)}</span></div><div class="sr"><span class="sl">Источник</span><span class="sv ${actualFresh(v)?'pos':'neg'}">${actualFresh(v)?'UPSCALE LIVE':'UPSCALE STALE / UNAVAILABLE'}</span></div><div class="dim">${actualTime(v.fetched_at?new Date(v.fetched_at*1000):null)}</div>`;
+ if(e&&typeof v.unrealized_total==='number'){e.insertAdjacentHTML('beforeend',`<div class="sr"><span class="sl">Нереализ. PnL (по рынку)</span><span class="sv ${v.unrealized_total>=0?'pos':'neg'}">${v.unrealized_total>=0?'+':''}$${v.unrealized_total.toFixed(2)}</span></div>`);}
+ if(perfId)renderActualPerf(perfId,v);
+};
+renderVenuePositions=function(elId,v){
+ const box=$(elId);if(!box)return;box.textContent='';box.className='';
+ const note=document.createElement('div');note.className=actualFresh(v)?'dim':'neg';note.textContent=actualFresh(v)?'Upscale · фактическое исполнение':'Upscale: данные устарели или недоступны';box.appendChild(note);
+ if(!v||!Array.isArray(v.positions))return;
+ const want={'ag-pos-crypto':'crypto','ag-pos-stock':'stock','ag-pos-forex':'forex'}[elId]||'crypto';
+ const list=v.positions.filter(p=>(p.asset_class||'crypto')===want);
+ for(const p of list){
+  const card=document.createElement('div');card.style.cssText='border:1px solid #181818;padding:8px;margin-top:6px';
+  const orders=p.protective_orders||[],stop=orders.filter(o=>o.type==='stop'),take=orders.filter(o=>o.type==='take');
+  const price=os=>os.length===1?actualNumber(os[0].trigger_price):'нет однозначных данных';
+  card.innerHTML=`<div><span class="sym">${esc(p.symbol)}</span> <span style="color:var(--cyan)">${esc((p.direction||'').toUpperCase())} · ${actualNumber(p.leverage,2)}x</span></div><div>Вход: ${actualNumber(p.entry)} · SL: ${price(stop)} · TP: ${price(take)}</div><div class="dim">Маржа: ${actualMoney(p.margin)} · Номинал: ${actualMoney(p.notional)} · Количество: ${actualNumber(typeof p.size==='number'?Math.abs(p.size):null,8)}</div><div>Рынок: ${actualNumber(p.mark)} · Нереализ. PnL: <span class="${typeof p.unrealized_pnl==='number'&&p.unrealized_pnl>=0?'pos':'neg'}">${typeof p.unrealized_pnl==='number'?(p.unrealized_pnl>=0?'+':'')+'$'+p.unrealized_pnl.toFixed(2):'нет данных'}</span></div><div class="dim">Открыта: ${esc(actualTime(p.opened_at))}</div><div class="dim">Плечо — исполненный ордер; цена — сумма исполнения / количество</div>`;box.appendChild(card);
+ }
+ if(actualFresh(v)&&!list.length){const e=document.createElement('div');e.className='dim';e.textContent='Нет открытых позиций этого класса на Upscale';box.appendChild(e);}
+};
+function renderActualPerf(id,v){
+ const e=$(id);if(!e)return;const rows=Array.isArray(v.history)?v.history:[],known=rows.filter(r=>typeof r.reported_pnl==='number'),wins=known.filter(r=>r.reported_pnl>0),losses=known.filter(r=>r.reported_pnl<0),total=known.reduce((s,r)=>s+r.reported_pnl,0),fees=rows.filter(r=>typeof r.fee==='number').reduce((s,r)=>s+r.fee,0),funding=rows.filter(r=>typeof r.funding==='number').reduce((s,r)=>s+r.funding,0);
+ e.innerHTML=`<div class="dim">Upscale · выбранный счёт / область API. Не paper.</div><div class="sr"><span class="sl">Закрытые сделки</span><span class="sv">${rows.length}</span></div><div class="sr"><span class="sl">Положит. / отрицат. PnL</span><span class="sv">${wins.length} / ${losses.length}</span></div><div class="sr"><span class="sl">PnL биржи (${known.length} записей)</span><span class="sv">${actualMoney(known.length?total:null)}</span></div><div class="sr"><span class="sl">Комиссии (отдельно)</span><span class="sv">${actualMoney(rows.length?fees:null)}</span></div><div class="sr"><span class="sl">Funding (отдельно)</span><span class="sv">${actualMoney(rows.length?funding:null)}</span></div>${v.stats&&typeof v.stats.positionsCount==='number'?`<div class="sr"><span class="sl">Винрейт (Upscale stats)</span><span class="sv">${v.stats.winratePercent}% · ${v.stats.profitablePositionsCount}/${v.stats.positionsCount}</span></div>`:''}<div class="dim">Не складываем эти поля в выдуманный net PnL.</div>`;
+}
+renderTrades=function(id,ag,full){
+ const tb=$(id);if(!tb)return;tb.textContent='';const v=D.upscale_venue||{},meta=v.history_meta||{},rows=Array.isArray(v.history)?v.history:[];
+ const table=tb.closest('table');if(table){const head=table.querySelector('thead');if(head)head.innerHTML='<tr><th>ОТКРЫТА / ЗАКРЫТА</th><th>ПАРА</th><th>СТОРОНА / ПЛЕЧО</th><th>ВХОД</th><th>ВЫХОД</th><th>КОЛИЧЕСТВО</th><th>PNL БИРЖИ</th><th>КОМИССИИ</th><th>FUNDING</th><th>ЗАКРЫТИЕ</th></tr>';}
+ const info=document.createElement('tr'),td=document.createElement('td');td.colSpan=10;td.className=actualFresh(v)?'dim':'neg';td.textContent=`Upscale ${actualFresh(v)?'LIVE':'STALE / UNAVAILABLE'} · записи API ${meta.collected??'?'}/${meta.total_expected??'?'} · закрытых ${rows.length}. Выбранный счёт; другие фазы/счета не утверждаем. История: ${actualTime(meta.fetched_at?new Date(meta.fetched_at*1000):null)}`;info.appendChild(td);tb.appendChild(info);
+ for(const p of rows){const tr=document.createElement('tr');const vals=[actualTime(p.opened_at)+' / '+actualTime(p.closed_at),p.symbol,(p.direction||'').toUpperCase()+' '+actualNumber(p.leverage,2)+'x',actualNumber(p.entry),actualNumber(p.exit),actualNumber(typeof p.size==='number'?Math.abs(p.size):null,8),actualNumber(p.reported_pnl,9),actualNumber(p.fee,9),actualNumber(p.funding,9),p.close_order_type||'нет данных'];for(const val of vals){const td=document.createElement('td');td.textContent=val;tr.appendChild(td);}tb.appendChild(tr);}
+};
+const legacyRenderAgent=renderAgent;
+renderAgent=function(){
+ legacyRenderAgent();const v=D.upscale_venue||{};renderActualPerf('ag-perf-stats',v);
+ const spark=$('spark-line'),range=$('spark-range'),eh=Array.isArray(v.equity_history)?v.equity_history.filter(x=>typeof x.equity==='number'):[];
+ if(spark){if(eh.length>=2){const lo=Math.min(...eh.map(x=>x.equity)),hi=Math.max(...eh.map(x=>x.equity)),N=eh.length,pts=eh.map((x,i)=>(i/(N-1)*300).toFixed(1)+','+(hi===lo?20:(4+(hi-x.equity)/(hi-lo)*32)).toFixed(1)).join(' '),last=eh[N-1].equity>=eh[0].equity?'#00ff66':'#ff4444';spark.style.letterSpacing='0';spark.style.overflow='hidden';spark.innerHTML=`<svg viewBox="0 0 300 40" preserveAspectRatio="none" style="width:100%;height:44px;display:block"><polyline fill="none" stroke="${last}" stroke-width="1.6" vector-effect="non-scaling-stroke" points="${pts}"/></svg>`;if(range)range.textContent=`Equity Upscale: $${lo.toFixed(0)} – $${hi.toFixed(0)} · сейчас $${eh[eh.length-1].equity.toFixed(2)} · ${new Date(eh[0].t).toLocaleDateString('ru-RU')} – ${new Date(eh[eh.length-1].t).toLocaleDateString('ru-RU')}`;}else{spark.textContent='История equity Upscale недоступна';if(range)range.textContent='';}}
+ renderVenuePositions('ag-pos-stock',v);renderVenuePositions('ag-pos-forex',v);
+};
+renderPositions=function(id,ag){const box=$(id);if(!box)return;box.textContent='';const v=D.upscale_venue||{};for(const p of v.positions||[]){const tr=document.createElement('tr');for(const val of [p.symbol,p.direction,actualNumber(p.leverage,2)+'x',actualNumber(p.entry),actualMoney(p.margin)]){const td=document.createElement('td');td.textContent=val;tr.appendChild(td);}box.appendChild(tr);}if(!actualFresh(v)){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=10;td.textContent='Upscale STALE / UNAVAILABLE';tr.appendChild(td);box.appendChild(tr);}};
+
+
+// -- LIVE QUOTES overlay: crypto = OKX public WebSocket (tick), FX/gold/stocks = Upscale index price (5s, shared server cache) --
+const LIVE={cry:{},up:{},cryAt:0,upAt:0,ws:null,wsOk:false,upStatus:'',health:null,raf:0,prev:{},retry:0};
+const LIVE_TABLES=[['tb-crypto','cry'],['tb-fx-majors','up'],['tb-fx-minors','up'],['tb-fx-emerging','up'],['tb-cmd','up'],['tb-idx','up'],['tb-stocks-full','up']];
+const LIVE_ALIAS=[[/gold/i,'XAU'],[/silver/i,'XAG'],[/(wti|crude)/i,'WTI']];
+function liveLookup(src,label){
+  if(src==='cry') return LIVE.cry[label];
+  const u=LIVE.up; if(u[label]!=null) return u[label]; const up=label.toUpperCase(); if(u[up]!=null) return u[up];
+  for(const [re,k] of LIVE_ALIAS){ if(re.test(label)&&u[k]!=null) return u[k]; }
+  return undefined;
+}
+function liveDec(label,p){ if(label.indexOf('JPY')>=0) return 3; if(label.indexOf('/')>=0) return 4; return p>=1000?0:p>=1?2:4; }
+function livePatch(){
+  LIVE.raf=0;
+  for(const [id,src] of LIVE_TABLES){
+    const tb=$(id); if(!tb) continue;
+    for(const tr of tb.rows){
+      const s=tr.querySelector('td.sym'), pc=tr.querySelector('td.price'); if(!s||!pc) continue;
+      const label=s.textContent.trim(), p=liveLookup(src,label); if(typeof p!=='number'||!isFinite(p)) continue;
+      const d=liveDec(label,p), txt=p.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+      if(pc.dataset.live===txt) continue;
+      const key=id+'|'+label, prev=LIVE.prev[key]; pc.textContent=txt+' '; pc.dataset.live=txt;
+      const dot=document.createElement('span'); dot.textContent='\u25cf'; dot.style.cssText='color:#00ff66;font-size:8px'; dot.title=src==='cry'?'OKX tick stream':'Upscale index price'; pc.appendChild(dot);
+      if(prev!=null&&p!==prev){ pc.style.transition='none'; pc.style.color=p>prev?'#00ff66':'#ff4444'; setTimeout(()=>{pc.style.transition='color .6s';pc.style.color='';},250); }
+      LIVE.prev[key]=p;
+    }
+  }
+}
+function liveSchedule(){ if(!LIVE.raf) LIVE.raf=requestAnimationFrame(livePatch); }
+function liveCryptoConnect(){
+  const syms=Object.keys((typeof D!=='undefined'&&D&&D.crypto)||{}); if(!syms.length||LIVE.es) return;
+  let es; try{ es=new EventSource('/api/crypto_stream?syms='+encodeURIComponent(syms.join(','))); }catch(e){ return; }
+  LIVE.es=es;
+  es.onmessage=e=>{ try{ const m=JSON.parse(e.data); LIVE.wsOk=(m.status==='LIVE'); for(const [k,v] of Object.entries(m.ticks||{})){ if(typeof v==='number'&&isFinite(v)) LIVE.cry[k]=v; } LIVE.cryAt=Date.now(); liveSchedule(); }catch(_){} };
+  es.onerror=()=>{ LIVE.wsOk=false; };
+}
+async function livePollUp(){
+  try{ const r=await fetch('/api/live_quotes',{cache:'no-store'}); if(!r.ok) return; const j=await r.json();
+    if(j&&j.quotes){ LIVE.up=j.quotes; LIVE.upAt=Date.now(); LIVE.upStatus=j.status||''; LIVE.health=j.feed_health||null; liveSchedule(); liveStatus(); } }catch(e){}
+}
+function liveStatus(){
+  const el=$('data-quality'); if(!el) return;
+  const ago=LIVE.upAt?Math.round((Date.now()-LIVE.upAt)/1000)+'s ago':'no data';
+  let h=''; const src=(LIVE.health&&LIVE.health.sources)||{};
+  const parts=Object.entries(src).map(([k,v])=>k+' '+v.ok+'/'+(v.ok+v.fail)); if(parts.length) h=' \u00b7 data feeds ok/total: '+parts.join(', ');
+  el.textContent='Crypto: '+(LIVE.wsOk?'OKX tick stream LIVE (via server)':'HTX 15s polling (tick stream reconnecting)')+' \u00b7 FX / gold / stocks / indices: Upscale index price, refresh 5s ('+(LIVE.upStatus||'?')+', '+ago+')'+h+' \u00b7 CB meetings/rates, carry, correlations: MANUAL REFERENCE, not live';
+}
+const liveRenderAll=renderAll;
+renderAll=function(){ liveRenderAll(); liveCryptoConnect(); livePatch(); liveStatus(); };
+setInterval(livePollUp,5000); livePollUp();
+
 // -- Init --
-connect();
+// WebSocket interruptions must not leave the screen empty indefinitely.
+let httpBusy=false;
+async function pollDashboard() {
+  if(httpBusy)return;
+  httpBusy=true;
+  try {
+    const response=await fetch('/api/data',{cache:'no-store',signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw new Error('Dashboard HTTP '+response.status);
+    const snapshot=await response.json();
+    if(!snapshot || !Object.keys(snapshot).length)return;
+    D=snapshot;dataTs=snapshot.ts||0;
+    hideLoading();
+    try {renderAll();} catch(error) {console.error('Dashboard render failed',error);}
+    if(dataTs)$('sb-ts').textContent=new Date(dataTs*1000).toISOString().slice(11,16)+' UTC';
+    setConn('live');
+  } catch(error) {console.warn('Dashboard poll failed; retaining previous data',error);}
+  finally {httpBusy=false;}
+}
+pollDashboard();setInterval(pollDashboard,15000);
+if(PANELS.includes(location.hash.slice(1)))sw(location.hash.slice(1));
+rtSessionReady.then(()=>connect()).catch(()=>setConn('off'));
 </script>
 </body>
 </html>
