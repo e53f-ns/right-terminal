@@ -135,6 +135,51 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
 .dl{background:var(--green)} .de{background:var(--red)}
 
 @media(max-width:900px){.row{flex-direction:column}body{font-size:12px}}
+
+/* ===== RT DESIGN v5: amber terminal, calmer (tokens shared with RT CONTROL) ===== */
+:root{--bg:#050505;--panel:#0b0805;--border:#2a1a0a;--ln:#2a1a0a;--orange:#ff8a1f;--green:#2ee66b;--red:#ff4d4d;--cyan:#35c8ff;--yellow:#ffc14d;--white:#e0e0e0;--dim:#777;--header:#0c0702}
+#hdr{border-bottom:1px solid var(--ln);height:44px}
+#hdr-logo{font-size:18px;letter-spacing:.3em}
+.sbadge{border-radius:3px}#conn{border-radius:99px;padding:2px 10px}
+#tkr-wrap{background:#0a0703;border-bottom:1px solid var(--ln)}.ti{border-right:1px solid var(--ln)}
+#tabs{background:#080604;border-bottom:1px solid var(--ln)}
+.tab{padding:6px 16px;border-right:1px solid #140d06}.tab.active{border-bottom:2px solid var(--orange)}
+.panel::-webkit-scrollbar-thumb{background:#2a1a0a}
+.card{border:1px solid var(--ln);border-top:1px solid var(--ln);border-radius:6px;padding:12px 14px}
+.ctitle{font-size:11px;letter-spacing:.14em;text-transform:uppercase;border-bottom:1px solid #140d06}
+.bt th{border-bottom:1px solid var(--ln);letter-spacing:.08em}.bt td{border-bottom:1px solid #140d06}
+.btn{border-radius:4px}.b{border-radius:3px}
+#sbar{background:#080604;border-top:1px solid var(--ln)}
+#data-quality{background:#0a0703;color:#8a8a8a!important;border-bottom:1px solid var(--ln)!important}
+#loading pre{display:none}#lb-wrap{border-color:var(--ln)}
+/* DESK */
+.dk{display:flex;flex-direction:column;gap:10px}
+.dk-chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dk-chip{font-size:10px;padding:2px 10px;border-radius:99px;border:1px solid;letter-spacing:.04em}
+.dk-ok{color:var(--green);border-color:#1d4d2b;background:rgba(46,230,107,.07)}
+.dk-warn{color:var(--yellow);border-color:#4d3a1d;background:rgba(255,193,77,.07)}
+.dk-bad{color:var(--red);border-color:#5a2020;background:rgba(255,77,77,.08)}
+.dk-kpis{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;gap:10px}
+.dk-k{border:1px solid var(--ln);border-radius:6px;padding:10px 12px;background:var(--panel);min-width:0}
+.dk-k .l{font-size:9px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase}
+.dk-k .v{font-size:22px;font-weight:700;margin-top:3px;white-space:nowrap}.dk-k.main .v{font-size:28px;color:#fff}
+.dk-k .s{font-size:10px;color:var(--dim);margin-top:2px}
+.dk-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;align-items:start}
+.dk-pn{border:1px solid var(--ln);border-radius:6px;background:var(--panel);overflow:hidden}
+.dk-pn h5{margin:0;padding:8px 12px;font-size:10px;letter-spacing:.14em;color:var(--orange);border-bottom:1px solid var(--ln);display:flex;justify-content:space-between;font-weight:700}
+.dk-pn h5 em{color:var(--dim);font-style:normal;font-weight:400;letter-spacing:0}
+.dk table{width:100%;border-collapse:collapse}.dk td,.dk th{padding:6px 12px;text-align:left;white-space:nowrap}
+.dk th{font-size:9px;color:#666;font-weight:400;text-transform:uppercase;letter-spacing:.1em}
+.dk tr+tr td{border-top:1px solid #140d06}
+.dk .tr{text-align:right}.dk .m{color:var(--dim)}.dk .why{white-space:normal;color:#9a9a9a;font-size:11px;min-width:130px}
+.dk-ev{padding:8px 12px;border-top:1px solid #140d06}.dk-ev:first-of-type{border-top:0}
+.dk-ev .t{font-size:10px;color:#666}.dk-ev .w{font-size:11px;color:#a8a8a8;margin-top:1px;line-height:1.45}
+.dk-ev.close .w b.pos,.dk-ev.close .w b.neg{font-weight:700}
+.dk-empty{padding:14px 12px;color:var(--dim);font-size:12px}
+.dk-note{font-size:10px;color:#666;display:flex;gap:16px;flex-wrap:wrap}
+.dk-rev{padding:9px 12px;border-top:1px solid var(--ln);background:#0c0702}
+.dk-rev pre{white-space:pre-wrap;font:11px/1.5 inherit;color:#b8b8b8;margin-top:6px}
+@media(max-width:1100px){.dk-kpis{grid-template-columns:repeat(2,1fr)}.dk-grid{grid-template-columns:1fr}}
 </style>
 <style>
 #panel-agent .col {flex:1 1 0%;min-width:0;}
@@ -196,23 +241,37 @@ body{background:var(--bg);color:var(--white);font-family:'JetBrains Mono','Sourc
 
 <!-- Tabs -->
 <div id="tabs">
-  <div class="tab active" data-p="macro"><span class="fk">F1</span> MACRO</div>
+  <div class="tab active" data-p="desk"><span class="fk">F1</span> DESK</div>
   <div class="tab" data-p="crypto"><span class="fk">F2</span> CRYPTO</div>
   <div class="tab" data-p="stocks"><span class="fk">F3</span> STOCKS</div>
   <div class="tab" data-p="forex"><span class="fk">F4</span> FOREX</div>
-  <div class="tab" data-p="bonds"><span class="fk">F5</span> BONDS &amp; RATES</div>
-  <div class="tab" data-p="news"><span class="fk">F6</span> NEWS &amp; AI</div>
-  <div class="tab" data-p="geo"><span class="fk">F7</span> GEOPOLITICAL</div>
-  <div class="tab" data-p="signals"><span class="fk">F8</span> SIGNALS</div>
-  <div class="tab" data-p="agent"><span class="fk">F9</span> AGENT</div>
+  <div class="tab" data-p="news"><span class="fk">F5</span> NEWS &amp; AI</div>
+  <div class="tab" data-p="macro"><span class="fk">F6</span> MACRO</div>
+  <div class="tab" data-p="bonds"><span class="fk">F7</span> BONDS &amp; RATES</div>
+  <div class="tab" data-p="geo"><span class="fk">F8</span> GEOPOLITICAL</div>
+  <div class="tab" data-p="signals"><span class="fk">F9</span> SIGNALS</div>
   <div class="tab" data-p="polymarket"><span class="fk">F10</span> POLYMARKET</div>
+  <div class="tab" data-p="agent"><span class="fk">F11</span> &#9881; SYSTEM</div>
 </div>
 
 <!-- Content -->
 <div id="content">
 
 <!-- F1 MACRO -->
-<div class="panel active" id="panel-macro">
+<div class="panel active" id="panel-desk">
+ <div class="dk">
+  <div class="dk-chips" id="dk-chips"><span class="dk-chip dk-warn">&#9679; загрузка…</span></div>
+  <div class="dk-kpis" id="dk-kpis"></div>
+  <div class="dk-pn"><h5>ЭКВИТИ <em id="dk-curve-note"></em></h5><div id="dk-curve" style="padding:8px 12px 10px"></div></div>
+  <div class="dk-grid">
+   <div class="dk-pn"><h5>ОТКРЫТЫЕ ПОЗИЦИИ <em>данные биржи</em></h5><div id="dk-pos"></div>
+    <h5 style="border-top:1px solid var(--ln)">ЗАКРЫТЫЕ <em>с причиной входа</em></h5><div id="dk-closed"></div></div>
+   <div class="dk-pn"><h5>ЛЕНТА АГЕНТА <em>что и почему</em></h5><div id="dk-feed"></div><div id="dk-review"></div></div>
+  </div>
+  <div class="dk-note" id="dk-note"></div>
+ </div>
+</div>
+<div class="panel" id="panel-macro">
   <div class="row">
     <div class="col c2">
       <div class="card">
@@ -892,7 +951,7 @@ function hideLoading() {
 }
 
 // -- Tabs --
-const PANELS=['macro','crypto','stocks','forex','bonds','news','geo','signals','agent','polymarket'];
+const PANELS=['desk','crypto','stocks','forex','news','macro','bonds','geo','signals','polymarket','agent'];
 function sw(name) {
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.p===name));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+name));
@@ -2211,6 +2270,119 @@ async function pollDashboard() {
 pollDashboard();setInterval(pollDashboard,15000);
 if(PANELS.includes(location.hash.slice(1)))sw(location.hash.slice(1));
 rtSessionReady.then(()=>connect()).catch(()=>setConn('off'));
+
+// ===== F1 DESK =====
+(function(){
+const dg=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const isn=v=>typeof v==='number'&&isFinite(v);
+const n2=(v,d=2)=>isn(v)?v.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'\u2014';
+const sg=(v,d=2)=>isn(v)?((v>0?'+':v<0?'\u2212':'')+Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d})):'\u2014';
+const cl=v=>isn(v)?(v>0?'pos':v<0?'neg':''):'';
+const px=v=>!isn(v)?'\u2014':v>=1000?n2(v,1):v>=10?n2(v,2):v>=1?n2(v,3):n2(v,5);
+const p2=x=>String(x).padStart(2,'0');
+function tm(ts){const d=new Date(ts*1000),t=new Date();return (d.toDateString()===t.toDateString()?'':p2(d.getDate())+'.'+p2(d.getMonth()+1)+' ')+p2(d.getHours())+':'+p2(d.getMinutes());}
+function dur(m){if(!isn(m))return '';return m<60?Math.round(m)+'\u043c':Math.floor(m/60)+'\u0447'+p2(Math.round(m%60))+'\u043c';}
+let last=null,lastOk=0,denied=false,failed=false;
+function chip(c,t){return '<span class="dk-chip dk-'+c+'">&#9679; '+esc(t)+'</span>';}
+function feedsChip(){
+  try{const s=(LIVE&&LIVE.health&&LIVE.health.sources)||{};let ok=0,tot=0;for(const v of Object.values(s)){ok+=v.ok||0;tot+=(v.ok||0)+(v.fail||0);}
+    if(!tot)return '';const r=ok/tot;return chip(r>0.9?'ok':r>0.6?'warn':'bad','\u0414\u0410\u041d\u041d\u042b\u0415 '+ok+'/'+tot);}catch(e){return '';}
+}
+function renderChips(d){
+  let h='';
+  if(denied){h=chip('bad','\u041d\u0415\u0422 \u0414\u041e\u0421\u0422\u0423\u041f\u0410: \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u043e \u043d\u0435 \u0434\u043e\u0432\u0435\u0440\u0435\u043d\u043d\u043e\u0435');}
+  else if(d&&!d.ok){h=chip(d.loading?'warn':'bad',d.loading?'\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0434\u0430\u043d\u043d\u044b\u0445 \u0431\u0438\u0440\u0436\u0438 (\u043f\u0435\u0440\u0432\u044b\u0439 \u0437\u0430\u043f\u0440\u043e\u0441 ~20 \u0441\u0435\u043a)\u2026':'\u043e\u0448\u0438\u0431\u043a\u0430: '+esc(d.error||'?'));}
+  else if(!d){h=chip(failed?'bad':'warn',failed?'\u041d\u0415\u0422 \u0421\u0412\u042f\u0417\u0418 \u0421 \u0421\u0415\u0420\u0412\u0415\u0420\u041e\u041c':'\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0430\u2026');}
+  else{
+    const a=d.agent||{};
+    h+=a.alive?chip('ok','\u0410\u0413\u0415\u041d\u0422 \u0416\u0418\u0412'):chip('bad','\u0410\u0413\u0415\u041d\u0422 \u041c\u041e\u041b\u0427\u0418\u0422'+(isn(a.log_age_s)?' '+Math.round(a.log_age_s/60)+' \u043c\u0438\u043d':''));
+    h+=d.venue_status==='LIVE'?chip('ok','UPSCALE LIVE'):chip('bad','UPSCALE '+esc(d.venue_status||'?'));
+    const pr=d.protected||{ok:0,total:0};
+    if(pr.total)h+=pr.ok===pr.total?chip('ok','\u0417\u0410\u0429\u0418\u0422\u0410 '+pr.ok+'/'+pr.total):chip('bad','\u0417\u0410\u0429\u0418\u0422\u0410 '+pr.ok+'/'+pr.total+' \u2014 \u0415\u0421\u0422\u042c \u0411\u0415\u0417 SL/TP');
+    h+=feedsChip();
+    if(failed)h+=chip('warn','\u0434\u0430\u043d\u043d\u044b\u0435 \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438: '+Math.round((Date.now()-lastOk)/1000)+' \u0441\u0435\u043a');
+    (d.errors||[]).forEach(e=>{h+=chip('warn',e);});
+  }
+  dg('dk-chips').innerHTML=h;
+}
+function kpi(cls_,l,v,s,c){return '<div class="dk-k '+cls_+'"><div class="l">'+l+'</div><div class="v '+(c||'')+'">'+v+'</div><div class="s">'+s+'</div></div>';}
+function renderKpis(d){
+  const a=d.account||{},cs=d.closed_stats||{},pr=d.protected||{ok:0,total:0};
+  const wr=cs.n?cs.wins+' / '+cs.n:'\u2014';
+  dg('dk-kpis').innerHTML=
+    kpi('main','\u042d\u043a\u0432\u0438\u0442\u0438 \u00b7 Upscale','$'+n2(a.equity),'\u0441\u0435\u0433\u043e\u0434\u043d\u044f <span class="'+cl(a.day_pnl)+'">'+sg(a.day_pnl)+'</span> \u00b7 \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e $'+n2(a.free,0))+
+    kpi('','\u041f\u043b\u0430\u0432\u0430\u044e\u0449\u0438\u0439',sg(d.unrealized),(d.positions||[]).length+' \u043f\u043e\u0437.',cl(d.unrealized))+
+    kpi('','\u0417\u0430\u043a\u0440\u044b\u0442\u043e (\u0440\u0435\u0430\u043b.)',sg(cs.sum_pnl),(cs.n||0)+' \u0441\u0434\u0435\u043b\u043e\u043a',cl(cs.sum_pnl))+
+    kpi('','\u0412\u0438\u043d\u0440\u0435\u0439\u0442',wr,'\u0441\u0440. R '+(isn(cs.avg_R)?sg(cs.avg_R):'\u2014'),'')+
+    kpi('','\u0417\u0430\u0449\u0438\u0442\u0430',pr.ok+' / '+pr.total,'SL+TP \u043d\u0430 \u0431\u0438\u0440\u0436\u0435',pr.total?(pr.ok===pr.total?'pos':'neg'):'');
+}
+function renderCurve(d){
+  const c=(d.equity_curve||[]).filter(p=>isn(p[1]));
+  if(c.length<2){dg('dk-curve').innerHTML='<div class="dk-empty">\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445 \u0438\u0441\u0442\u043e\u0440\u0438\u0438 \u044d\u043a\u0432\u0438\u0442\u0438</div>';return;}
+  const vs=c.map(p=>p[1]),st=(d.account||{}).start,all=isn(st)?vs.concat([st]):vs;
+  const mn=Math.min(...all),mx=Math.max(...all),rg=(mx-mn)||1,W=600,Hh=64;
+  const X=i=>(i/(c.length-1))*W,Y=v=>Hh-6-((v-mn)/rg)*(Hh-12);
+  const pts=c.map((p,i)=>X(i).toFixed(1)+','+Y(p[1]).toFixed(1)).join(' ');
+  const lastv=vs[vs.length-1],col=(isn(st)&&lastv<st)?'#ff4d4d':'#2ee66b';
+  const base=isn(st)?'<line x1="0" x2="'+W+'" y1="'+Y(st).toFixed(1)+'" y2="'+Y(st).toFixed(1)+'" stroke="#3a2a18" stroke-dasharray="4 4"/>':'';
+  dg('dk-curve').innerHTML='<svg viewBox="0 0 '+W+' '+Hh+'" preserveAspectRatio="none" style="width:100%;height:64px;display:block">'+base+'<polyline fill="none" stroke="'+col+'" stroke-width="1.8" vector-effect="non-scaling-stroke" points="'+pts+'"/></svg>';
+  const t0=c[0][0]?new Date(c[0][0]):null;
+  dg('dk-curve-note').textContent=(t0?'\u0441 '+p2(t0.getDate())+'.'+p2(t0.getMonth()+1)+' \u00b7 ':'')+'\u0441\u0442\u0430\u0440\u0442 '+n2(st,0)+' \u00b7 \u043c\u0438\u043d '+n2(mn,0)+' \u00b7 \u0441\u0435\u0439\u0447\u0430\u0441 '+n2(lastv,0);
+}
+function renderPos(d){
+  const ps=d.positions||[];
+  if(!ps.length){dg('dk-pos').innerHTML='<div class="dk-empty">\u041e\u0442\u043a\u0440\u044b\u0442\u044b\u0445 \u043f\u043e\u0437\u0438\u0446\u0438\u0439 \u043d\u0435\u0442</div>';return;}
+  let h='<table><tr><th>\u0410\u043a\u0442\u0438\u0432</th><th>\u0421\u0442\u043e\u0440\u043e\u043d\u0430</th><th class="tr">\u0420\u0430\u0437\u043c\u0435\u0440</th><th class="tr">\u0412\u0445\u043e\u0434 \u2192 \u0441\u0435\u0439\u0447\u0430\u0441</th><th class="tr">uPnL</th><th>SL / TP</th></tr>';
+  ps.forEach(p=>{
+    const prot=p.protected?'<span class="pos">'+px(p.stop)+' / '+px(p.take)+' \u2713</span><div class="m" style="font-size:10px">\u0434\u043e \u0441\u0442\u043e\u043f\u0430 '+n2(p.dist_stop_pct,1)+'% \u00b7 \u0434\u043e \u0442\u0435\u0439\u043a\u0430 '+n2(p.dist_take_pct,1)+'%</div>':'<span class="neg">\u26a0 \u041d\u0415\u0422 \u041f\u041e\u041b\u041d\u041e\u0419 \u0417\u0410\u0429\u0418\u0422\u042b</span>';
+    h+='<tr><td><b>'+esc(p.symbol)+'</b></td><td>'+esc(p.direction)+'</td><td class="tr">'+n2(p.size,p.size>=100?0:2)+'</td><td class="tr">'+px(p.entry)+' \u2192 '+px(p.mark)+'</td><td class="tr '+cl(p.upnl)+'">'+sg(p.upnl)+'</td><td>'+prot+'</td></tr>';
+  });
+  dg('dk-pos').innerHTML=h+'</table>';
+}
+function renderClosed(d){
+  const cs=d.closed||[];
+  if(!cs.length){dg('dk-closed').innerHTML='<div class="dk-empty">\u0417\u0430\u043a\u0440\u044b\u0442\u044b\u0445 \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0445 \u0441\u0434\u0435\u043b\u043e\u043a \u043f\u043e\u043a\u0430 \u043d\u0435\u0442</div>';return;}
+  let h='<table><tr><th>\u0410\u043a\u0442\u0438\u0432</th><th>\u0418\u0442\u043e\u0433</th><th class="tr">PnL</th><th class="tr">R</th><th>\u0412\u0445\u043e\u0434 (\u0438\u0437 \u0436\u0443\u0440\u043d\u0430\u043b\u0430)</th></tr>';
+  cs.forEach(r=>{
+    const by=r.closed_by==='stop'?'stop':r.closed_by==='take'?'take':'\u2014';
+    const why=r.why?esc(r.why)+(isn(r.hold_min)?' \u00b7 '+dur(r.hold_min):''):'<span class="m">\u043f\u0440\u0438\u0447\u0438\u043d\u0430 \u0432\u0445\u043e\u0434\u0430 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u0430</span>'+(isn(r.hold_min)?' \u00b7 '+dur(r.hold_min):'');
+    h+='<tr><td><b>'+esc(r.symbol)+'</b> <span class="m">'+(r.direction==='long'?'L':'S')+'</span></td><td>'+by+'</td><td class="tr '+cl(r.pnl)+'">'+sg(r.pnl)+'</td><td class="tr '+cl(r.R)+'">'+(isn(r.R)?sg(r.R,2):'\u2014')+'</td><td class="why">'+why+'</td></tr>';
+  });
+  dg('dk-closed').innerHTML=h+'</table>';
+}
+function renderFeed(d){
+  const f=d.feed||[];
+  dg('dk-feed').innerHTML=f.length?f.map(e=>{
+    const k={hold:'HOLD',blocked:'\u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e',rejected:'\u043e\u0442\u043a\u043b\u043e\u043d\u0435\u043d\u043e',entry:'\u0432\u0445\u043e\u0434',close:'\u0437\u0430\u043a\u0440\u044b\u0442\u0438\u0435',review:'\u0440\u0430\u0437\u0431\u043e\u0440'}[e.kind]||e.kind;
+    return '<div class="dk-ev '+esc(e.kind)+'"><div class="t">'+tm(e.ts)+(e.sym?' \u00b7 '+esc(e.sym):'')+' \u00b7 '+esc(k)+'</div><div class="w">'+esc(e.text)+'</div></div>';
+  }).join(''):'<div class="dk-empty">\u0421\u043e\u0431\u044b\u0442\u0438\u0439 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442</div>';
+  const r=d.review||{};
+  let h='<div class="dk-rev"><div style="font-size:10px;letter-spacing:.14em;color:var(--orange);font-weight:700">\ud83d\udcdd \u0410\u0412\u0422\u041e-\u0420\u0410\u0417\u0411\u041e\u0420 \u00b7 \u0436\u0434\u0451\u0442 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438</div>';
+  if(r.latest&&(r.pending||0)===0)h+='<pre>'+esc(r.latest)+'</pre>';
+  else h+='<div class="m" style="font-size:11px;margin-top:4px">\u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u2014 \u043f\u043e\u0441\u043b\u0435 '+(r.every||10)+' \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0445 \u0441\u0434\u0435\u043b\u043e\u043a (\u0441\u0435\u0439\u0447\u0430\u0441 '+(r.pending||0)+', \u043e\u0441\u0442\u0430\u043b\u043e\u0441\u044c '+(r.remaining==null?'?':r.remaining)+'). \u042d\u0442\u043e \u043f\u0440\u0435\u0434\u043b\u043e\u0436\u0435\u043d\u0438\u0435, \u043f\u0440\u0430\u0432\u0438\u043b\u0430 \u043d\u0435 \u043c\u0435\u043d\u044f\u0435\u0442.</div>';
+  dg('dk-review').innerHTML=h+'</div>';
+}
+function render(){
+  renderChips(last);
+  if(!last||!last.ok){dg('dk-kpis').innerHTML='';return;}
+  renderKpis(last);renderCurve(last);renderPos(last);renderClosed(last);renderFeed(last);
+  dg('dk-note').innerHTML='<span>\u0414\u0430\u043d\u043d\u044b\u0435: Upscale (\u0442\u043e\u043b\u044c\u043a\u043e \u0447\u0442\u0435\u043d\u0438\u0435) \u00b7 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u043e '+tm(last.ts)+'</span><span>\u0421\u0434\u0435\u043b\u043a\u0438: \u0442\u043e\u043b\u044c\u043a\u043e \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0435, \u0431\u0435\u0437 \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0438\u0445 \u043c\u0438\u043a\u0440\u043e-\u0442\u0435\u0441\u0442\u043e\u0432</span><span style="margin-left:auto">\u2699 \u0427\u0430\u0442 \u0441 \u0430\u0433\u0435\u043d\u0442\u043e\u043c \u00b7 \u0431\u044d\u043a\u0442\u0435\u0441\u0442 \u00b7 \u044d\u043a\u0441\u043f\u043e\u0440\u0442 \u2192 SYSTEM</span>';
+}
+async function pollDesk(force){
+  if(document.hidden&&force!==true)return;
+  try{
+    const r=await fetch('/api/desk',{cache:'no-store',signal:AbortSignal.timeout(20000)});
+    if(r.status===403){denied=true;failed=false;last=null;render();return;}
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const j=await r.json();denied=false;failed=false;last=j;lastOk=Date.now();render();
+  }catch(e){failed=true;render();}
+}
+pollDesk(true);setInterval(pollDesk,5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollDesk();});
+// splash must never block the screen: panels show their own loading states
+setTimeout(()=>{try{hideLoading();}catch(e){}},2500);
+})();
 </script>
 </body>
 </html>

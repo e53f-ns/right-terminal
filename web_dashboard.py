@@ -2028,6 +2028,15 @@ async def api_upscale(force: bool = False):
     return JSONResponse(await asyncio.get_event_loop().run_in_executor(None, upscale_panel.snapshot, force))
 
 
+@app.get("/api/desk")
+async def api_desk(request: Request):
+    # F1 DESK: money/positions, so trusted devices only (loopback / Tailscale), same boundary as the agent chat.
+    if _operator_boundary.peer(request.scope) not in _operator_boundary.devices:
+        return JSONResponse({"ok": False, "error": "Device denied"}, status_code=403)
+    import rt_dashboard_desk
+    return JSONResponse(await asyncio.get_event_loop().run_in_executor(None, rt_dashboard_desk.snapshot))
+
+
 @app.get("/upscale")
 async def upscale_page():
     import upscale_panel
